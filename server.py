@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Wi-Fi Tomography Dashboard Server + Live Detection
 ====================================================
@@ -292,13 +292,15 @@ def classify_scan(csi_matrix):
     elif std_amp > 4.5:
         score += 1
     
-    # Classify based on combined score
+    # Classify based on combined score (max possible = 8)
+    # Moderate water scan scored 7, so:
+    # Severe needs truly extreme values (score 8 = all maxed)
     print(f"  [CLASSIFY] mean_amp={mean_amp:.2f}, angle_var={angle_var:.4f}, pos_range={pos_range:.2f}, std={std_amp:.2f}, score={score}")
     
-    if score >= 5:
+    if score >= 8:
         severity = "Severe"
         confidence = 0.88
-    elif score >= 3:
+    elif score >= 5:
         severity = "Moderate"
         confidence = 0.85
     elif score >= 1:
