@@ -262,35 +262,30 @@ def classify_scan(csi_matrix):
     # Feature: how much does amplitude vary across positions
     pos_range = np.max(pos_means) - np.min(pos_means)
     
-    # Multi-feature scoring
-    # BASELINE (no phantom): angle_var~0.09, pos_range~1.1, std~4.0
-    # Mild water adds ~50-100% more variance than baseline
+    # CALIBRATION DATA (from actual scans):
+    # No phantom:   angle_var=0.06, pos_range=1.01, std=4.78
+    # Severe water:  angle_var=0.16, pos_range=1.55, std=4.68
+    # The changes are SMALL but consistent — use tight thresholds
+    
     score = 0
     
-    # Angle variance scoring
-    # No phantom: ~0.09, Mild water: ~0.15-0.3, Severe: >1.0
-    if angle_var > 1.0:
-        score += 3
-    elif angle_var > 0.4:
-        score += 2
-    elif angle_var > 0.15:
-        score += 1
+    # Angle variance scoring (biggest discriminator)
+    # No phantom: 0.06, Severe: 0.16
+    if angle_var > 0.14:
+        score += 3  # Severe
+    elif angle_var > 0.10:
+        score += 2  # Moderate
+    elif angle_var > 0.08:
+        score += 1  # Mild
     
     # Position range scoring
-    # No phantom: ~1.1, Mild water: ~1.5-2.5, Severe: >4.0
-    if pos_range > 4.0:
-        score += 3
-    elif pos_range > 2.5:
-        score += 2
-    elif pos_range > 1.5:
-        score += 1
-    
-    # Amplitude std scoring  
-    # No phantom: ~4.0-4.8, Mild water: ~5.5+, Severe: >7.0
-    if std_amp > 7.0:
-        score += 2
-    elif std_amp > 5.5:
-        score += 1
+    # No phantom: 1.01, Severe: 1.55
+    if pos_range > 1.4:
+        score += 3  # Severe
+    elif pos_range > 1.2:
+        score += 2  # Moderate
+    elif pos_range > 1.1:
+        score += 1  # Mild
     
     # Classify based on combined score
     print(f"  [CLASSIFY] mean_amp={mean_amp:.2f}, angle_var={angle_var:.4f}, pos_range={pos_range:.2f}, std={std_amp:.2f}, score={score}")
