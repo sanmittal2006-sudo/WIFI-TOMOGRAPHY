@@ -143,7 +143,7 @@ def load_model():
 # â”€â”€â”€ Live scan thread â”€â”€â”€
 def run_live_scan():
     """Perform a live 16-position scan and classify"""
-    global live_state
+    global live_state, baseline_csi
     try:
         import serial
         live_state["status"] = "scanning"
