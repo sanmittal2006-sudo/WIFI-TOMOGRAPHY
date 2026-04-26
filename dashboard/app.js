@@ -491,6 +491,8 @@ function renderLive(){
   }
   ctx.fillStyle='#1a2340'; ctx.font='14px Inter'; ctx.textAlign='center';
   ctx.fillText('Awaiting scan...',250,210);
+  // Show existing scan history if any
+  setTimeout(()=>renderScanHistory(),100);
 }
 
 function startLiveScan(demo){
@@ -532,9 +534,30 @@ function pollLiveStatus(){
   }).catch(()=>{});
 }
 
+// ═══ SCAN HISTORY & FEEDBACK SYSTEM ═══
+let scanHistory = JSON.parse(localStorage.getItem('scanHistory')||'[]');
+
 function showLiveResult(r){
   const colors={Healthy:'#4CAF50',Mild:'#FFC107',Moderate:'#FF9800',Severe:'#f44336'};
   const c=colors[r.severity]||'#00d4ff';
+  const scanId = Date.now();
+  
+  // Save scan to history (feedback pending)
+  const scanEntry = {
+    id: scanId,
+    timestamp: r.timestamp || new Date().toLocaleString(),
+    detected: r.severity,
+    confidence: r.confidence,
+    anomaly: r.anomaly_detected,
+    affected_lung: r.affected_lung,
+    water_ml: r.water_volume_ml,
+    mean_amp: r.mean_amplitude,
+    feedback: null, // null = pending, true = correct, false = wrong
+    actual: null    // if wrong, what was the actual condition
+  };
+  scanHistory.unshift(scanEntry);
+  localStorage.setItem('scanHistory', JSON.stringify(scanHistory));
+
   document.getElementById('liveResult').innerHTML=`
     <div style="font-size:14px;color:var(--text-muted);margin-bottom:8px">CONDITION DETECTED</div>
     <div style="font-size:36px;font-weight:700;color:${c};margin:8px 0">${r.severity.toUpperCase()}</div>
@@ -546,12 +569,130 @@ function showLiveResult(r){
       <div class="metric-item"><span class="m-label">Mean Amp</span><span class="m-value">${r.mean_amplitude}</span></div>
       <div class="metric-item"><span class="m-label">Variance</span><span class="m-value">${r.amplitude_variance}</span></div>
       <div class="metric-item"><span class="m-label">Time</span><span class="m-value" style="font-size:9px">${r.timestamp}</span></div>
+    </div>
+    <div id="feedbackBox" style="margin-top:18px;padding:14px;border-radius:10px;background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.25)">
+      <div style="font-size:13px;font-weight:600;color:#00d4ff;margin-bottom:10px">⚡ WAS THIS DETECTION CORRECT?</div>
+      <div style="display:flex;gap:10px;justify-content:center">
+        <button onclick="submitFeedback(${scanId},true)" style="padding:8px 24px;border-radius:8px;border:2px solid #4CAF50;background:rgba(76,175,80,0.15);color:#4CAF50;font-weight:700;cursor:pointer;font-size:14px;transition:all 0.2s" onmouseover="this.style.background='rgba(76,175,80,0.4)'" onmouseout="this.style.background='rgba(76,175,80,0.15)'">✅ YES — Correct</button>
+        <button onclick="showWrongOptions(${scanId})" style="padding:8px 24px;border-radius:8px;border:2px solid #f44336;background:rgba(244,67,54,0.15);color:#f44336;font-weight:700;cursor:pointer;font-size:14px;transition:all 0.2s" onmouseover="this.style.background='rgba(244,67,54,0.4)'" onmouseout="this.style.background='rgba(244,67,54,0.15)'">❌ NO — Wrong</button>
+      </div>
+      <div id="wrongOptions" style="display:none;margin-top:12px">
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">What was the ACTUAL condition?</div>
+        <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap">
+          <button onclick="submitFeedback(${scanId},false,'Healthy')" style="padding:6px 14px;border-radius:6px;border:1px solid #4CAF50;background:rgba(76,175,80,0.1);color:#4CAF50;cursor:pointer;font-size:12px;font-weight:600">Healthy (No Water)</button>
+          <button onclick="submitFeedback(${scanId},false,'Mild')" style="padding:6px 14px;border-radius:6px;border:1px solid #FFC107;background:rgba(255,193,7,0.1);color:#FFC107;cursor:pointer;font-size:12px;font-weight:600">Mild (~15ml)</button>
+          <button onclick="submitFeedback(${scanId},false,'Moderate')" style="padding:6px 14px;border-radius:6px;border:1px solid #FF9800;background:rgba(255,152,0,0.1);color:#FF9800;cursor:pointer;font-size:12px;font-weight:600">Moderate (~50ml)</button>
+          <button onclick="submitFeedback(${scanId},false,'Severe')" style="padding:6px 14px;border-radius:6px;border:1px solid #f44336;background:rgba(244,67,54,0.1);color:#f44336;cursor:pointer;font-size:12px;font-weight:600">Severe (~150ml)</button>
+        </div>
+      </div>
     </div>`;
+
   // Draw result on canvas
   const cv=document.getElementById('liveCanvas');
   if(cv){
     const caseMap={Healthy:'healthy',Mild:'mild',Moderate:'moderate',Severe:'severe'};
     LungHeatmap.drawLungHeatmap(cv,caseMap[r.severity]||'healthy','recon');
+  }
+  // Render scan history below
+  renderScanHistory();
+}
+
+function showWrongOptions(scanId){
+  const el=document.getElementById('wrongOptions');
+  if(el) el.style.display='block';
+}
+
+function submitFeedback(scanId, correct, actual){
+  const idx=scanHistory.findIndex(s=>s.id===scanId);
+  if(idx>=0){
+    scanHistory[idx].feedback=correct;
+    if(!correct) scanHistory[idx].actual=actual||'Unknown';
+    localStorage.setItem('scanHistory',JSON.stringify(scanHistory));
+  }
+  // Update feedback box
+  const fb=document.getElementById('feedbackBox');
+  if(fb){
+    if(correct){
+      fb.innerHTML=`<div style="text-align:center;padding:8px"><span style="font-size:28px">✅</span><div style="color:#4CAF50;font-weight:700;margin-top:6px">Feedback saved — Detection was CORRECT!</div><div style="font-size:11px;color:var(--text-muted);margin-top:4px">This helps calibrate future scans</div></div>`;
+      fb.style.borderColor='rgba(76,175,80,0.4)';
+      fb.style.background='rgba(76,175,80,0.08)';
+    } else {
+      fb.innerHTML=`<div style="text-align:center;padding:8px"><span style="font-size:28px">📝</span><div style="color:#FF9800;font-weight:700;margin-top:6px">Feedback saved — Actual: ${actual}</div><div style="font-size:11px;color:var(--text-muted);margin-top:4px">This data helps improve accuracy</div></div>`;
+      fb.style.borderColor='rgba(255,152,0,0.4)';
+      fb.style.background='rgba(255,152,0,0.08)';
+    }
+  }
+  renderScanHistory();
+}
+
+function renderScanHistory(){
+  let histEl=document.getElementById('scanHistoryCard');
+  if(!histEl){
+    // Create the history card below the main content
+    const mc=document.getElementById('mainContent');
+    if(!mc) return;
+    const card=document.createElement('div');
+    card.className='card';
+    card.id='scanHistoryCard';
+    card.style.gridColumn='1/-1';
+    card.style.marginTop='10px';
+    mc.appendChild(card);
+    histEl=card;
+  }
+  
+  const stats = {total:scanHistory.length, correct:0, wrong:0, pending:0};
+  scanHistory.forEach(s=>{
+    if(s.feedback===null) stats.pending++;
+    else if(s.feedback) stats.correct++;
+    else stats.wrong++;
+  });
+  const accuracy = stats.total>0&&(stats.correct+stats.wrong)>0 ? ((stats.correct/(stats.correct+stats.wrong))*100).toFixed(0) : '—';
+
+  histEl.innerHTML=`
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span>📋 SCAN HISTORY & FEEDBACK LOG</span>
+      <span style="font-size:12px;color:var(--text-secondary)">Accuracy: <b style="color:${parseInt(accuracy)>=70?'#4CAF50':'#f44336'}">${accuracy}%</b> (${stats.correct}/${stats.correct+stats.wrong} correct)</span>
+    </div>
+    <div style="display:flex;gap:12px;margin-bottom:10px;flex-wrap:wrap">
+      <span style="font-size:11px;padding:4px 10px;border-radius:12px;background:rgba(0,212,255,0.1);color:#00d4ff">Total: ${stats.total}</span>
+      <span style="font-size:11px;padding:4px 10px;border-radius:12px;background:rgba(76,175,80,0.1);color:#4CAF50">✅ Correct: ${stats.correct}</span>
+      <span style="font-size:11px;padding:4px 10px;border-radius:12px;background:rgba(244,67,54,0.1);color:#f44336">❌ Wrong: ${stats.wrong}</span>
+      <span style="font-size:11px;padding:4px 10px;border-radius:12px;background:rgba(255,193,7,0.1);color:#FFC107">⏳ Pending: ${stats.pending}</span>
+      ${stats.total>0?`<button onclick="clearScanHistory()" style="font-size:10px;padding:3px 10px;border-radius:8px;border:1px solid rgba(244,67,54,0.3);background:transparent;color:#f44336;cursor:pointer;margin-left:auto">Clear All</button>`:''}
+    </div>
+    <table class="data-table" style="font-size:12px">
+      <thead><tr><th>#</th><th>Time</th><th>Detected</th><th>Confidence</th><th>Anomaly</th><th>Lung</th><th>Water</th><th>Feedback</th><th>Actual</th></tr></thead>
+      <tbody>
+        ${scanHistory.length===0?'<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:20px">No scans yet — run a Live Scan or Demo to start</td></tr>':''}
+        ${scanHistory.slice(0,20).map((s,i)=>{
+          const colors={Healthy:'#4CAF50',Mild:'#FFC107',Moderate:'#FF9800',Severe:'#f44336'};
+          const dc=colors[s.detected]||'#00d4ff';
+          const ac=s.actual?colors[s.actual]||'#aaa':'';
+          const fbIcon=s.feedback===null?'⏳':s.feedback?'✅':'❌';
+          const fbColor=s.feedback===null?'#FFC107':s.feedback?'#4CAF50':'#f44336';
+          return `<tr>
+            <td>${i+1}</td>
+            <td style="font-size:10px">${s.timestamp}</td>
+            <td><b style="color:${dc}">${s.detected}</b></td>
+            <td>${s.confidence?(s.confidence*100).toFixed(0)+'%':'—'}</td>
+            <td>${s.anomaly?'<span style="color:#f44336">YES</span>':'<span style="color:#4CAF50">NO</span>'}</td>
+            <td>${s.affected_lung||'—'}</td>
+            <td>${s.water_ml||'—'}</td>
+            <td style="font-size:16px;color:${fbColor}">${fbIcon}</td>
+            <td style="color:${ac}">${s.actual||'—'}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+    ${scanHistory.length>20?`<div style="font-size:11px;color:var(--text-muted);margin-top:6px;text-align:center">Showing latest 20 of ${scanHistory.length} scans</div>`:''}
+  `;
+}
+
+function clearScanHistory(){
+  if(confirm('Clear all scan history and feedback?')){
+    scanHistory=[];
+    localStorage.removeItem('scanHistory');
+    renderScanHistory();
   }
 }
 
