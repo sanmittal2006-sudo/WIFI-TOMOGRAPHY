@@ -255,29 +255,33 @@ def classify_scan(csi_matrix):
     pos_range = np.max(pos_means) - np.min(pos_means)
     
     # Multi-feature scoring
-    # Higher angle_var + higher pos_range = more fluid
+    # BASELINE (no phantom): angle_var~0.09, pos_range~1.1, std~4.0
+    # These thresholds must be ABOVE baseline noise floor
     score = 0
     
-    # Angle variance scoring (real data: 0.47=healthy, 0.91=severe)
-    if angle_var > 0.85:
+    # Angle variance scoring
+    # No phantom: ~0.09, With water: should be higher
+    if angle_var > 2.0:
         score += 3
-    elif angle_var > 0.65:
+    elif angle_var > 1.0:
         score += 2
-    elif angle_var > 0.48:
+    elif angle_var > 0.5:
         score += 1
     
     # Position range scoring
-    if pos_range > 3.0:
+    # No phantom: ~1.1, With water: should be >2
+    if pos_range > 5.0:
         score += 3
-    elif pos_range > 2.0:
+    elif pos_range > 3.0:
         score += 2
-    elif pos_range > 1.0:
+    elif pos_range > 2.0:
         score += 1
     
-    # Amplitude std scoring
-    if std_amp > 4.0:
+    # Amplitude std scoring  
+    # No phantom: ~4.0, With water: should be >5
+    if std_amp > 7.0:
         score += 2
-    elif std_amp > 3.0:
+    elif std_amp > 5.0:
         score += 1
     
     # Classify based on combined score
