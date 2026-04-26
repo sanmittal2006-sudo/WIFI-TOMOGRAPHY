@@ -166,6 +166,7 @@ def run_live_scan():
         live_state["status"] = "scanning"
         live_state["message"] = "Connecting to hardware..."
         live_state["progress"] = 0
+        live_state["live_csi"] = []
 
         # Connect — NOTE: motor is 9600 baud, CSI is 115200
         print(f"  [LIVE] Connecting RX on {CSI_PORT} at {CSI_BAUD}...")
@@ -228,8 +229,17 @@ def run_live_scan():
 
             pkt_count = len(csi_at_pos)
             mean_rssi = np.mean(rssi_at_pos) if rssi_at_pos else -99
-            print(f"  [LIVE]   Got {pkt_count} CSI packets, RSSI={mean_rssi:.1f} dBm at pos {pos+1}")
+            mean_amp_pos = float(np.mean(np.mean(csi_at_pos, axis=0))) if csi_at_pos else 0.0
+            print(f"  [LIVE]   Got {pkt_count} CSI packets, RSSI={mean_rssi:.1f} dBm, Amp={mean_amp_pos:.2f} at pos {pos+1}")
             all_rssi.append(mean_rssi)
+            
+            # Push to live_state for dashboard
+            live_state["live_csi"].append({
+                "pos": pos+1,
+                "rssi": round(float(mean_rssi), 1),
+                "amp": round(mean_amp_pos, 2),
+                "pkts": pkt_count
+            })
 
             if csi_at_pos:
                 mean_csi = np.mean(csi_at_pos, axis=0)

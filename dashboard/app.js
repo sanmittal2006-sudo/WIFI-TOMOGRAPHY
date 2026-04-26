@@ -443,7 +443,6 @@ function renderLive(){
     <div class="card" style="grid-row:1/4">
       <div class="card-title">LIVE SCAN — REAL-TIME DETECTION</div>
       <div style="text-align:center;padding:20px 0">
-        <button id="btnBaseline" onclick="startBaselineScan()" style="padding:14px 30px;font-size:14px;font-weight:600;background:#1a2340;color:#ff9800;border:1px solid #ff9800;border-radius:8px;cursor:pointer;font-family:inherit;margin-right:10px" title="Scan WITHOUT water first to calibrate">🎯 BASELINE (No Water)</button>
         <button id="btnScan" onclick="startLiveScan(false)" style="padding:14px 40px;font-size:16px;font-weight:700;background:linear-gradient(135deg,#00d4ff,#00ff88);color:#000;border:none;border-radius:8px;cursor:pointer;font-family:inherit;letter-spacing:1px">▶ START LIVE SCAN</button>
         <button id="btnDemo" onclick="startLiveScan(true)" style="padding:14px 30px;font-size:14px;font-weight:600;background:#1a2340;color:#00d4ff;border:1px solid #00d4ff;border-radius:8px;cursor:pointer;font-family:inherit;margin-left:10px">⚡ DEMO MODE</button>
       </div>
@@ -452,6 +451,19 @@ function renderLive(){
           <div id="progBar" style="height:100%;background:linear-gradient(90deg,#00d4ff,#00ff88);width:0%;transition:width 0.5s;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#000"></div>
         </div>
         <p id="liveMsg" style="text-align:center;color:var(--text-secondary);font-size:12px"></p>
+      </div>
+      <div id="liveCsiPanel" style="display:none;margin:10px 0;padding:10px;background:#0a0f1e;border:1px solid #1a2340;border-radius:8px">
+        <div style="font-size:11px;font-weight:700;color:#00d4ff;margin-bottom:8px">📡 LIVE CSI VALUES</div>
+        <div style="display:flex;gap:6px;margin-bottom:6px">
+          <span style="font-size:10px;color:#888;width:60px">Position</span>
+          <span style="font-size:10px;color:#888;flex:1">RSSI (dBm)</span>
+          <span style="font-size:10px;color:#888;flex:1">Amp Mean</span>
+          <span style="font-size:10px;color:#888;flex:1">Packets</span>
+        </div>
+        <div id="csiRows" style="max-height:280px;overflow-y:auto"></div>
+        <div style="margin-top:8px;padding-top:8px;border-top:1px solid #1a2340">
+          <canvas id="rssiChart" width="480" height="80" style="width:100%;height:80px"></canvas>
+        </div>
       </div>
       <div class="canvas-wrap" style="margin-top:10px"><canvas id="liveCanvas" width="500" height="400"></canvas></div>
     </div>
@@ -542,16 +554,85 @@ function pollLiveStatus(){
     bar.textContent=pct+'%';
     msg.textContent=s.message;
     
+    // Show live CSI values
+    if(s.live_csi && s.live_csi.length>0){
+      const panel=document.getElementById('liveCsiPanel');
+      if(panel) panel.style.display='block';
+      const rows=document.getElementById('csiRows');
+      if(rows){
+        let html='';
+        s.live_csi.forEach((d,i)=>{
+          const rssiColor=d.rssi>-35?'#00ff88':d.rssi>-40?'#ffd700':d.rssi>-50?'#ff9800':'#f44336';
+          const ampColor=d.amp>8?'#00ff88':d.amp>5?'#ffd700':'#f44336';
+          html+=`<div style="display:flex;gap:6px;padding:3px 0;border-bottom:1px solid #111;font-family:monospace;font-size:11px">`;
+          html+=`<span style="width:60px;color:#aaa">${i+1} (${(i*22.5).toFixed(0)}°)</span>`;
+          html+=`<span style="flex:1;color:${rssiColor};font-weight:700">${d.rssi.toFixed(1)}</span>`;
+          html+=`<span style="flex:1;color:${ampColor}">${d.amp.toFixed(2)}</span>`;
+          html+=`<span style="flex:1;color:#888">${d.pkts}</span>`;
+          html+=`</div>`;
+        });
+        rows.innerHTML=html;
+      }
+      // Draw mini RSSI chart
+      drawRssiChart(s.live_csi);
+    }
+    
     if(s.status==='done'||s.status==='error'){
       clearInterval(livePolling);
       livePolling=null;
       if(s.status==='done'&&s.result) showLiveResult(s.result);
       document.getElementById('btnScan').disabled=false;
       document.getElementById('btnDemo').disabled=false;
-      if(document.getElementById('btnBaseline')) document.getElementById('btnBaseline').disabled=false;
       bar.style.width='100%'; bar.textContent='100%';
     }
   }).catch(()=>{});
+}
+
+function drawRssiChart(data){
+  const c=document.getElementById('rssiChart');
+  if(!c) return;
+  const ctx=c.getContext('2d');
+  const W=c.width, H=c.height;
+  ctx.clearRect(0,0,W,H);
+  
+  const rssiVals=data.map(d=>d.rssi).filter(r=>r>-98);
+  if(rssiVals.length===0) return;
+  
+  const minR=Math.min(...rssiVals)-2;
+  const maxR=Math.max(...rssiVals)+2;
+  const range=maxR-minR||1;
+  
+  // Background
+  ctx.fillStyle='#0a0f1e';
+  ctx.fillRect(0,0,W,H);
+  
+  // Grid lines
+  ctx.strokeStyle='#1a2340';
+  ctx.lineWidth=1;
+  for(let i=0;i<4;i++){
+    const y=H*i/3;
+    ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();
+  }
+  
+  // RSSI bars
+  const bw=W/16-4;
+  data.forEach((d,i)=>{
+    if(d.rssi<-98) return;
+    const x=i*(W/16)+2;
+    const h=((d.rssi-minR)/range)*H*0.8;
+    const color=d.rssi>-35?'#00ff88':d.rssi>-40?'#ffd700':d.rssi>-50?'#ff9800':'#f44336';
+    ctx.fillStyle=color;
+    ctx.fillRect(x,H-h-2,bw,h);
+    // Label
+    ctx.fillStyle='#666';
+    ctx.font='8px monospace';
+    ctx.fillText((i+1).toString(),x+bw/2-3,H-1);
+  });
+  
+  // Label
+  ctx.fillStyle='#888';
+  ctx.font='9px sans-serif';
+  ctx.fillText(`RSSI: ${minR.toFixed(0)} to ${maxR.toFixed(0)} dBm`,5,10);
 }
 
 // ═══ SCAN HISTORY & FEEDBACK SYSTEM ═══
