@@ -194,6 +194,7 @@ def run_live_scan():
             print("  [LIVE] Motor didn't respond, trying anyway...")
 
         all_csi = []
+        all_rssi = []  # RSSI per position (hardware-measured signal strength)
         for pos in range(16):
             live_state["progress"] = pos
             live_state["message"] = f"Scanning position {pos+1}/16 ({pos*22.5}\u00b0)"
@@ -201,12 +202,18 @@ def run_live_scan():
 
             # Collect CSI for 3 seconds
             csi_at_pos = []
+            rssi_at_pos = []
             end_time = time.time() + 3
             while time.time() < end_time:
                 line = rx.readline().decode('utf-8', errors='ignore').strip()
                 if 'CSI_DATA' in line:
                     try:
                         # Format: CSI_DATA,seq,rssi,noise,len,[r0,i0,r1,i1,...]
+                        parts = line.split(',')
+                        # Extract RSSI (3rd field, index 2)
+                        rssi_val = int(parts[2])
+                        rssi_at_pos.append(rssi_val)
+                        
                         bracket_start = line.index('[')
                         bracket_end = line.index(']')
                         values_str = line[bracket_start+1:bracket_end]
@@ -220,7 +227,9 @@ def run_live_scan():
                         pass  # Skip malformed lines
 
             pkt_count = len(csi_at_pos)
-            print(f"  [LIVE]   Got {pkt_count} CSI packets at pos {pos+1}")
+            mean_rssi = np.mean(rssi_at_pos) if rssi_at_pos else -99
+            print(f"  [LIVE]   Got {pkt_count} CSI packets, RSSI={mean_rssi:.1f} dBm at pos {pos+1}")
+            all_rssi.append(mean_rssi)
 
             if csi_at_pos:
                 mean_csi = np.mean(csi_at_pos, axis=0)
@@ -251,7 +260,9 @@ def run_live_scan():
 
         # Process with model
         csi_matrix = np.array(all_csi)
-        result = classify_scan(csi_matrix)
+        rssi_array = np.array(all_rssi)
+        print(f"  [LIVE] RSSI per position: {[f'{r:.1f}' for r in rssi_array]}")
+        result = classify_scan(csi_matrix, rssi_array)
         live_state["result"] = result
         live_state["status"] = "done"
         live_state["message"] = f"Detection complete: {result['severity']}"
@@ -352,10 +363,10 @@ def run_baseline_scan():
         live_state["status"] = "error"
         live_state["message"] = f"Baseline error: {str(e)}"
 
-def classify_scan(csi_matrix):
-    """Classify using BASELINE COMPARISON.
-    Compares current scan against saved healthy baseline.
-    If no baseline exists, uses absolute thresholds.
+def classify_scan(csi_matrix, rssi_array=None):
+    """Classify using RSSI + CSI amplitude analysis.
+    RSSI is hardware-measured signal strength — most reliable.
+    No baseline needed.
     """
     mean_amp = np.mean(csi_matrix)
     std_amp = np.std(csi_matrix)
@@ -365,86 +376,74 @@ def classify_scan(csi_matrix):
     pos_range = np.max(pos_means) - np.min(pos_means)
     
     score = 0
+    rssi_info = ""
     
-    if baseline_data:
-        # ═══ BASELINE COMPARISON MODE ═══
-        # Compare against the saved healthy/empty scan
-        bl_amp = baseline_data['mean_amp']
-        bl_var = baseline_data['angle_var']
-        bl_range = baseline_data['pos_range']
-        bl_std = baseline_data['std_amp']
+    if rssi_array is not None and len(rssi_array) == 16:
+        # ═══ RSSI-BASED DETECTION (most reliable) ═══
+        mean_rssi = np.mean(rssi_array)
+        rssi_var = np.var(rssi_array)
+        rssi_range = np.max(rssi_array) - np.min(rssi_array)
+        rssi_std = np.std(rssi_array)
         
-        # How much did mean amplitude DROP? (water absorbs signal)
-        amp_drop = bl_amp - mean_amp
-        # How much did angle variance INCREASE? (water causes asymmetry)
-        var_increase = angle_var - bl_var
-        # How much did position range INCREASE?
-        range_increase = pos_range - bl_range
-        # How much did std CHANGE?
-        std_change = abs(std_amp - bl_std)
+        # RSSI weak/strong ratio
+        sorted_rssi = np.sort(rssi_array)
+        weak_rssi = np.mean(sorted_rssi[:4])    # 4 weakest positions
+        strong_rssi = np.mean(sorted_rssi[-4:])  # 4 strongest positions
+        rssi_diff = strong_rssi - weak_rssi       # How much difference
         
-        print(f"  [BASELINE] amp_drop={amp_drop:.2f}, var_increase={var_increase:.4f}, range_increase={range_increase:.2f}, std_change={std_change:.2f}")
+        rssi_info = f"mean_rssi={mean_rssi:.1f}, rssi_range={rssi_range:.1f}, rssi_diff={rssi_diff:.1f}, rssi_var={rssi_var:.2f}"
+        print(f"  [RSSI] {rssi_info}")
         
-        # Amplitude drop scoring (most reliable feature)
-        if amp_drop > 2.0:
+        # RSSI range scoring — water causes RSSI to vary across angles
+        if rssi_range > 8:
             score += 4
-        elif amp_drop > 1.0:
+        elif rssi_range > 5:
             score += 3
-        elif amp_drop > 0.5:
+        elif rssi_range > 3:
             score += 2
-        elif amp_drop > 0.2:
+        elif rssi_range > 1.5:
             score += 1
         
-        # Variance increase scoring
-        if var_increase > 1.0:
+        # RSSI variance scoring
+        if rssi_var > 8:
             score += 3
-        elif var_increase > 0.3:
+        elif rssi_var > 4:
             score += 2
-        elif var_increase > 0.1:
+        elif rssi_var > 1.5:
             score += 1
         
-        # Range increase scoring
-        if range_increase > 3.0:
+        # RSSI diff (weak vs strong positions)
+        if rssi_diff > 10:
+            score += 3
+        elif rssi_diff > 6:
             score += 2
-        elif range_increase > 1.0:
+        elif rssi_diff > 3:
             score += 1
-        
-        # Std change scoring
-        if std_change > 1.5:
-            score += 1
-    else:
-        # ═══ NO BASELINE — use per-position amplitude pattern ═══
-        print("  [CLASSIFY] WARNING: No baseline! Run baseline scan first.")
-        # Just compare per-position amplitudes against each other
-        # Positions where water is in the path will have LOWER amplitude
-        sorted_means = np.sort(pos_means)
-        # Ratio of weakest positions to strongest
-        weak_avg = np.mean(sorted_means[:4])   # 4 weakest positions
-        strong_avg = np.mean(sorted_means[-4:]) # 4 strongest positions
-        ratio = weak_avg / (strong_avg + 0.001)
-        
-        print(f"  [CLASSIFY] weak_avg={weak_avg:.2f}, strong_avg={strong_avg:.2f}, ratio={ratio:.3f}")
-        
-        if ratio < 0.5:
-            score = 6  # Severe: some angles heavily blocked
-        elif ratio < 0.7:
-            score = 4  # Moderate
-        elif ratio < 0.85:
-            score = 2  # Mild
-        else:
-            score = 0  # Healthy: uniform signal
     
-    print(f"  [CLASSIFY] mean_amp={mean_amp:.2f}, angle_var={angle_var:.4f}, pos_range={pos_range:.2f}, std={std_amp:.2f}, score={score}")
+    # ═══ CSI amplitude pattern (backup) ═══
+    sorted_means = np.sort(pos_means)
+    weak_avg = np.mean(sorted_means[:4])
+    strong_avg = np.mean(sorted_means[-4:])
+    amp_ratio = weak_avg / (strong_avg + 0.001)
     
-    if score >= 5:
+    if amp_ratio < 0.5:
+        score += 3
+    elif amp_ratio < 0.7:
+        score += 2
+    elif amp_ratio < 0.85:
+        score += 1
+    
+    print(f"  [CLASSIFY] mean_amp={mean_amp:.2f}, angle_var={angle_var:.4f}, amp_ratio={amp_ratio:.3f}, score={score}")
+    
+    if score >= 7:
         severity = "Severe"
-        confidence = 0.90
+        confidence = 0.92
         water_ml = 150
-    elif score >= 3:
+    elif score >= 4:
         severity = "Moderate"
-        confidence = 0.85
+        confidence = 0.87
         water_ml = 50
-    elif score >= 1:
+    elif score >= 2:
         severity = "Mild"
         confidence = 0.80
         water_ml = 15
@@ -461,6 +460,7 @@ def classify_scan(csi_matrix):
         "mean_amplitude": round(float(mean_amp), 2),
         "amplitude_variance": round(float(angle_var), 4),
         "anomaly_detected": severity != "Healthy",
+        "rssi_info": rssi_info,
         "csi_summary": {
             "mean": round(float(mean_amp), 2),
             "std": round(float(std_amp), 2),
