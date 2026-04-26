@@ -151,34 +151,20 @@ def run_live_scan():
         rx.reset_input_buffer()
         motor.reset_input_buffer()
         
-        # Force-reset Arduino by toggling DTR (same as pressing RESET button)
-        print("  [LIVE] Resetting Arduino motor controller...")
-        motor.dtr = False
-        time.sleep(0.1)
-        motor.dtr = True
-        time.sleep(2)  # Wait for Arduino to boot after reset
-        motor.reset_input_buffer()
-        
         # Wait for motor ready
         print("  [LIVE] Waiting for MOTOR_READY...")
         motor_ready = False
-        for attempt in range(15):
+        for _ in range(10):
             if motor.in_waiting:
                 mline = motor.readline().decode('utf-8', errors='ignore').strip()
                 print(f"  [LIVE] Motor says: {mline}")
-                if 'READY' in mline or 'PONG' in mline or 'DONE' in mline:
+                if 'READY' in mline or 'PONG' in mline:
                     motor_ready = True
                     break
             motor.write(b"PING\n")
             time.sleep(0.5)
-        
         if not motor_ready:
-            print("  [LIVE] ERROR: Motor not responding! Aborting scan.")
-            live_state["status"] = "error"
-            live_state["message"] = "Motor not responding on COM11. Unplug and replug the Arduino USB cable, then try again."
-            motor.close()
-            rx.close()
-            return
+            print("  [LIVE] Motor didn't respond, trying anyway...")
 
         all_csi = []
         for pos in range(16):
