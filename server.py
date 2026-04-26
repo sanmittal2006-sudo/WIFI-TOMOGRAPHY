@@ -18,7 +18,8 @@ socketserver.TCPServer.allow_reuse_address = True
 PORT = 8080
 CSI_PORT = "COM7"
 MOTOR_PORT = "COM11"
-BAUD = 115200
+CSI_BAUD = 115200
+MOTOR_BAUD = 9600  # Arduino runs at 9600!
 BASE = Path(__file__).parent
 DASH = BASE / "dashboard"
 SCANS = BASE / "real_scans"
@@ -139,15 +140,37 @@ def run_live_scan():
         live_state["message"] = "Connecting to hardware..."
         live_state["progress"] = 0
 
-        # Connect
-        rx = serial.Serial(CSI_PORT, BAUD, timeout=2)
-        motor = serial.Serial(MOTOR_PORT, BAUD, timeout=2)
-        time.sleep(1)
+        # Connect — NOTE: motor is 9600 baud, CSI is 115200
+        print(f"  [LIVE] Connecting RX on {CSI_PORT} at {CSI_BAUD}...")
+        rx = serial.Serial(CSI_PORT, CSI_BAUD, timeout=2)
+        print(f"  [LIVE] Connecting Motor on {MOTOR_PORT} at {MOTOR_BAUD}...")
+        motor = serial.Serial(MOTOR_PORT, MOTOR_BAUD, timeout=2)
+        time.sleep(2)  # Wait for Arduino to boot
+
+        # Flush old data
+        rx.reset_input_buffer()
+        motor.reset_input_buffer()
+        
+        # Wait for motor ready
+        print("  [LIVE] Waiting for MOTOR_READY...")
+        motor_ready = False
+        for _ in range(10):
+            if motor.in_waiting:
+                mline = motor.readline().decode('utf-8', errors='ignore').strip()
+                print(f"  [LIVE] Motor says: {mline}")
+                if 'READY' in mline or 'PONG' in mline:
+                    motor_ready = True
+                    break
+            motor.write(b"PING\n")
+            time.sleep(0.5)
+        if not motor_ready:
+            print("  [LIVE] Motor didn't respond, trying anyway...")
 
         all_csi = []
         for pos in range(16):
             live_state["progress"] = pos
-            live_state["message"] = f"Scanning position {pos+1}/16 ({pos*22.5}°)"
+            live_state["message"] = f"Scanning position {pos+1}/16 ({pos*22.5}\u00b0)"
+            print(f"  [LIVE] Position {pos+1}/16...")
 
             # Collect CSI for 3 seconds
             csi_at_pos = []
@@ -155,27 +178,42 @@ def run_live_scan():
             while time.time() < end_time:
                 line = rx.readline().decode('utf-8', errors='ignore').strip()
                 if 'CSI_DATA' in line:
-                    parts = line.split(',')
                     try:
-                        csi_raw = [int(x) for x in parts[-1].strip('[]').split() if x]
+                        # Format: CSI_DATA,seq,rssi,noise,len,[r0,i0,r1,i1,...]
+                        bracket_start = line.index('[')
+                        bracket_end = line.index(']')
+                        values_str = line[bracket_start+1:bracket_end]
+                        csi_raw = [int(x.strip()) for x in values_str.split(',') if x.strip()]
                         amps = []
                         for i in range(0, len(csi_raw)-1, 2):
                             amps.append(np.sqrt(csi_raw[i]**2 + csi_raw[i+1]**2))
                         if amps:
                             csi_at_pos.append(amps[:64])
-                    except:
-                        pass
+                    except Exception as e:
+                        pass  # Skip malformed lines
+
+            pkt_count = len(csi_at_pos)
+            print(f"  [LIVE]   Got {pkt_count} CSI packets at pos {pos+1}")
 
             if csi_at_pos:
                 mean_csi = np.mean(csi_at_pos, axis=0)
                 all_csi.append(mean_csi)
             else:
+                print(f"  [LIVE]   WARNING: No CSI data at position {pos+1}!")
                 all_csi.append(np.zeros(64))
 
-            # Move motor
+            # Move motor to next position
             if pos < 15:
                 motor.write(b"MOVE\n")
-                time.sleep(2.5)
+                resp_time = time.time() + 3
+                while time.time() < resp_time:
+                    if motor.in_waiting:
+                        mresp = motor.readline().decode('utf-8', errors='ignore').strip()
+                        print(f"  [LIVE]   Motor: {mresp}")
+                        if 'DONE' in mresp:
+                            break
+                    time.sleep(0.1)
+                time.sleep(0.5)  # Settle time
 
         rx.close()
         motor.close()
