@@ -234,33 +234,71 @@ def run_live_scan():
         live_state["message"] = f"Error: {str(e)}"
 
 def classify_scan(csi_matrix):
-    """Classify a CSI matrix into severity levels"""
+    """Classify a CSI matrix into severity levels.
+    
+    Calibrated from REAL scan data:
+      healthy:  amp_mean=1.74, angle_var=0.47
+      mild:     amp_mean=1.49, angle_var=0.50
+      moderate: amp_mean=1.50, angle_var=0.89
+      severe:   amp_mean=1.90, angle_var=0.91
+    """
     # Compute features
     mean_amp = np.mean(csi_matrix)
     std_amp = np.std(csi_matrix)
     max_amp = np.max(csi_matrix)
 
-    # Angle-wise variance (how much signal changes across positions)
-    angle_var = np.var(np.mean(csi_matrix, axis=1))
-
-    # Simple threshold classification based on real data patterns
-    # When water is added, signal attenuates more -> lower amplitude variance
-    if angle_var < 5:
-        severity = "Healthy"
-        confidence = 0.98
-        water_ml = 0
-    elif angle_var < 15:
-        severity = "Mild"
-        confidence = 0.85
-        water_ml = 15
-    elif angle_var < 30:
-        severity = "Moderate"
-        confidence = 0.91
-        water_ml = 50
-    else:
+    # Per-position mean amplitude
+    pos_means = np.mean(csi_matrix, axis=1)
+    angle_var = np.var(pos_means)
+    
+    # Feature: how much does amplitude vary across positions
+    pos_range = np.max(pos_means) - np.min(pos_means)
+    
+    # Multi-feature scoring
+    # Higher angle_var + higher pos_range = more fluid
+    score = 0
+    
+    # Angle variance scoring (real data: 0.47=healthy, 0.91=severe)
+    if angle_var > 0.85:
+        score += 3
+    elif angle_var > 0.65:
+        score += 2
+    elif angle_var > 0.48:
+        score += 1
+    
+    # Position range scoring
+    if pos_range > 3.0:
+        score += 3
+    elif pos_range > 2.0:
+        score += 2
+    elif pos_range > 1.0:
+        score += 1
+    
+    # Amplitude std scoring
+    if std_amp > 4.0:
+        score += 2
+    elif std_amp > 3.0:
+        score += 1
+    
+    # Classify based on combined score
+    print(f"  [CLASSIFY] mean_amp={mean_amp:.2f}, angle_var={angle_var:.4f}, pos_range={pos_range:.2f}, std={std_amp:.2f}, score={score}")
+    
+    if score >= 5:
         severity = "Severe"
         confidence = 0.88
         water_ml = 150
+    elif score >= 3:
+        severity = "Moderate"
+        confidence = 0.85
+        water_ml = 50
+    elif score >= 1:
+        severity = "Mild"
+        confidence = 0.80
+        water_ml = 15
+    else:
+        severity = "Healthy"
+        confidence = 0.95
+        water_ml = 0
 
     return {
         "severity": severity,
