@@ -284,31 +284,42 @@ def classify_scan(csi_matrix):
     elif std_amp > 5.0:
         score += 1
     
+    # Detect which lung is affected
+    # First 8 positions (0-7): TX side → Left lung
+    # Last 8 positions (8-15): RX side → Right lung
+    # The side with MORE signal disruption has the water
+    if severity != "Healthy" and len(pos_means) >= 16:
+        first_half = pos_means[:8]
+        second_half = pos_means[8:]
+        var_first = np.var(first_half)
+        var_second = np.var(second_half)
+        affected_lung = "Left" if var_first > var_second else "Right"
+        print(f"  [LUNG] first_half_var={var_first:.4f}, second_half_var={var_second:.4f} → {affected_lung}")
+    elif severity != "Healthy":
+        affected_lung = "Right"  # Default if not enough data
+    else:
+        affected_lung = "None"
+    
     # Classify based on combined score
     print(f"  [CLASSIFY] mean_amp={mean_amp:.2f}, angle_var={angle_var:.4f}, pos_range={pos_range:.2f}, std={std_amp:.2f}, score={score}")
     
     if score >= 5:
         severity = "Severe"
         confidence = 0.88
-        water_ml = 150
     elif score >= 3:
         severity = "Moderate"
         confidence = 0.85
-        water_ml = 50
     elif score >= 1:
         severity = "Mild"
         confidence = 0.80
-        water_ml = 15
     else:
         severity = "Healthy"
         confidence = 0.95
-        water_ml = 0
 
     return {
         "severity": severity,
         "confidence": round(confidence, 2),
-        "affected_lung": "Right" if severity != "Healthy" else "None",
-        "water_volume_ml": water_ml,
+        "affected_lung": affected_lung,
         "mean_amplitude": round(float(mean_amp), 2),
         "amplitude_variance": round(float(angle_var), 4),
         "anomaly_detected": severity != "Healthy",
