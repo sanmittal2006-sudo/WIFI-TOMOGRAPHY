@@ -443,6 +443,7 @@ function renderLive(){
     <div class="card" style="grid-row:1/4">
       <div class="card-title">LIVE SCAN — REAL-TIME DETECTION</div>
       <div style="text-align:center;padding:20px 0">
+        <button id="btnBaseline" onclick="startBaselineScan()" style="padding:14px 30px;font-size:14px;font-weight:600;background:#1a2340;color:#ff9800;border:1px solid #ff9800;border-radius:8px;cursor:pointer;font-family:inherit;margin-right:10px" title="Scan WITHOUT water first to calibrate">🎯 BASELINE (No Water)</button>
         <button id="btnScan" onclick="startLiveScan(false)" style="padding:14px 40px;font-size:16px;font-weight:700;background:linear-gradient(135deg,#00d4ff,#00ff88);color:#000;border:none;border-radius:8px;cursor:pointer;font-family:inherit;letter-spacing:1px">▶ START LIVE SCAN</button>
         <button id="btnDemo" onclick="startLiveScan(true)" style="padding:14px 30px;font-size:14px;font-weight:600;background:#1a2340;color:#00d4ff;border:1px solid #00d4ff;border-radius:8px;cursor:pointer;font-family:inherit;margin-left:10px">⚡ DEMO MODE</button>
       </div>
@@ -495,6 +496,24 @@ function renderLive(){
   setTimeout(()=>renderScanHistory(),100);
 }
 
+function startBaselineScan(){
+  const prog=document.getElementById('liveProgress');
+  prog.style.display='block';
+  document.getElementById('btnScan').disabled=true;
+  document.getElementById('btnDemo').disabled=true;
+  document.getElementById('btnBaseline').disabled=true;
+  document.getElementById('liveMsg').textContent='Running BASELINE scan (no water)...';
+  document.getElementById('liveMsg').style.color='#ff9800';
+  
+  fetch('/api/scan/baseline',{method:'POST'}).then(r=>r.json()).then(()=>{
+    if(livePolling) clearInterval(livePolling);
+    livePolling=setInterval(pollLiveStatus,500);
+  }).catch(e=>{
+    document.getElementById('liveMsg').textContent='Error: '+e.message;
+    document.getElementById('liveMsg').style.color='#f44336';
+  });
+}
+
 function startLiveScan(demo){
   const prog=document.getElementById('liveProgress');
   prog.style.display='block';
@@ -529,6 +548,7 @@ function pollLiveStatus(){
       if(s.status==='done'&&s.result) showLiveResult(s.result);
       document.getElementById('btnScan').disabled=false;
       document.getElementById('btnDemo').disabled=false;
+      if(document.getElementById('btnBaseline')) document.getElementById('btnBaseline').disabled=false;
       bar.style.width='100%'; bar.textContent='100%';
     }
   }).catch(()=>{});

@@ -35,6 +35,33 @@ live_state = {
 }
 scan_data_cache = {}
 
+# Baseline calibration — saved from a "healthy" scan (no water)
+BASELINE_FILE = BASE / "baseline_scan.json"
+baseline_data = None
+
+def load_baseline():
+    global baseline_data
+    if BASELINE_FILE.exists():
+        with open(BASELINE_FILE) as f:
+            baseline_data = json.load(f)
+        print(f"  [OK] Baseline loaded: mean_amp={baseline_data['mean_amp']:.2f}")
+    else:
+        print("  [!!] No baseline scan found. Run a BASELINE scan first (no water).")
+
+def save_baseline(csi_matrix):
+    global baseline_data
+    baseline_data = {
+        "mean_amp": float(np.mean(csi_matrix)),
+        "std_amp": float(np.std(csi_matrix)),
+        "pos_means": [float(x) for x in np.mean(csi_matrix, axis=1)],
+        "angle_var": float(np.var(np.mean(csi_matrix, axis=1))),
+        "pos_range": float(np.max(np.mean(csi_matrix, axis=1)) - np.min(np.mean(csi_matrix, axis=1))),
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+    }
+    with open(BASELINE_FILE, 'w') as f:
+        json.dump(baseline_data, f, indent=2)
+    print(f"  [OK] Baseline saved: mean_amp={baseline_data['mean_amp']:.2f}, angle_var={baseline_data['angle_var']:.4f}")
+
 # ─── Load real scan data ───
 def load_scan_data():
     """Load all available .npz scan files"""
@@ -233,73 +260,185 @@ def run_live_scan():
         live_state["status"] = "error"
         live_state["message"] = f"Error: {str(e)}"
 
+def run_baseline_scan():
+    """Run a scan and save as healthy baseline (no water)"""
+    global live_state
+    try:
+        import serial
+        live_state["status"] = "scanning"
+        live_state["message"] = "Running BASELINE scan (no water)..."
+        live_state["progress"] = 0
+
+        rx = serial.Serial(CSI_PORT, CSI_BAUD, timeout=2)
+        motor = serial.Serial(MOTOR_PORT, MOTOR_BAUD, timeout=2)
+        time.sleep(2)
+        rx.reset_input_buffer()
+        motor.reset_input_buffer()
+
+        # Wait for motor
+        for _ in range(10):
+            if motor.in_waiting:
+                motor.readline()
+            motor.write(b"PING\n")
+            time.sleep(0.5)
+
+        all_csi = []
+        for pos in range(16):
+            live_state["progress"] = pos
+            live_state["message"] = f"Baseline position {pos+1}/16"
+            print(f"  [BASELINE] Position {pos+1}/16...")
+
+            csi_at_pos = []
+            end_time = time.time() + 3
+            while time.time() < end_time:
+                line = rx.readline().decode('utf-8', errors='ignore').strip()
+                if 'CSI_DATA' in line:
+                    try:
+                        bracket_start = line.index('[')
+                        bracket_end = line.index(']')
+                        values_str = line[bracket_start+1:bracket_end]
+                        csi_raw = [int(x.strip()) for x in values_str.split(',') if x.strip()]
+                        amps = []
+                        for i in range(0, len(csi_raw)-1, 2):
+                            amps.append(np.sqrt(csi_raw[i]**2 + csi_raw[i+1]**2))
+                        if amps:
+                            csi_at_pos.append(amps[:64])
+                    except:
+                        pass
+
+            if csi_at_pos:
+                all_csi.append(np.mean(csi_at_pos, axis=0))
+            else:
+                all_csi.append(np.zeros(64))
+
+            if pos < 15:
+                motor.write(b"MOVE\n")
+                resp_time = time.time() + 3
+                while time.time() < resp_time:
+                    if motor.in_waiting:
+                        mresp = motor.readline().decode('utf-8', errors='ignore').strip()
+                        if 'DONE' in mresp:
+                            break
+                    time.sleep(0.1)
+                time.sleep(0.5)
+
+        rx.close()
+        motor.close()
+
+        csi_matrix = np.array(all_csi)
+        save_baseline(csi_matrix)
+        
+        live_state["result"] = {
+            "severity": "Baseline Saved",
+            "confidence": 1.0,
+            "affected_lung": "None",
+            "water_volume_ml": 0,
+            "mean_amplitude": round(float(np.mean(csi_matrix)), 2),
+            "amplitude_variance": round(float(np.var(np.mean(csi_matrix, axis=1))), 4),
+            "anomaly_detected": False,
+            "csi_summary": {
+                "mean": round(float(np.mean(csi_matrix)), 2),
+                "std": round(float(np.std(csi_matrix)), 2),
+                "max": round(float(np.max(csi_matrix)), 2),
+                "positions": 16,
+                "subcarriers": int(csi_matrix.shape[1])
+            },
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+        }
+        live_state["status"] = "done"
+        live_state["message"] = "Baseline saved! Now scan with water."
+
+    except Exception as e:
+        live_state["status"] = "error"
+        live_state["message"] = f"Baseline error: {str(e)}"
+
 def classify_scan(csi_matrix):
-    """Classify a CSI matrix into severity levels.
-    
-    Calibrated from REAL scan data:
-      healthy:  amp_mean=1.74, angle_var=0.47
-      mild:     amp_mean=1.49, angle_var=0.50
-      moderate: amp_mean=1.50, angle_var=0.89
-      severe:   amp_mean=1.90, angle_var=0.91
+    """Classify using BASELINE COMPARISON.
+    Compares current scan against saved healthy baseline.
+    If no baseline exists, uses absolute thresholds.
     """
-    # Compute features
     mean_amp = np.mean(csi_matrix)
     std_amp = np.std(csi_matrix)
     max_amp = np.max(csi_matrix)
-
-    # Per-position mean amplitude
     pos_means = np.mean(csi_matrix, axis=1)
     angle_var = np.var(pos_means)
-    
-    # Feature: how much does amplitude vary across positions
     pos_range = np.max(pos_means) - np.min(pos_means)
     
-    # Multi-feature scoring
-    # BASELINE (no phantom): angle_var~0.09, pos_range~1.1, std~4.0
-    # These thresholds must be ABOVE baseline noise floor
     score = 0
     
-    # Angle variance scoring
-    # No phantom: ~0.09, With water: should be higher
-    if angle_var > 2.0:
-        score += 3
-    elif angle_var > 1.0:
-        score += 2
-    elif angle_var > 0.5:
-        score += 1
-    
-    # Position range scoring
-    # No phantom: ~1.1, With water: should be >2
-    if pos_range > 5.0:
-        score += 3
-    elif pos_range > 3.0:
-        score += 2
-    elif pos_range > 2.0:
-        score += 1
-    
-    # Amplitude std scoring  
-    # No phantom: ~4.0, With water: should be >5
-    if std_amp > 7.0:
-        score += 2
-    elif std_amp > 5.0:
-        score += 1
+    if baseline_data:
+        # ═══ BASELINE COMPARISON MODE ═══
+        # Compare against the saved healthy/empty scan
+        bl_amp = baseline_data['mean_amp']
+        bl_var = baseline_data['angle_var']
+        bl_range = baseline_data['pos_range']
+        bl_std = baseline_data['std_amp']
         
-    # Mean Amplitude (Absorption) Scoring
-    # If the balloon is perfectly dead-center, angle_var is 0, but water absorbs Wi-Fi!
-    # Healthy empty air mean_amp is ~9.0. If it drops below 8.0, water is blocking it.
-    if mean_amp < 6.5:
-        score += 4  # Massive absorption
-    elif mean_amp < 7.5:
-        score += 3  # Heavy absorption
-    elif mean_amp < 8.2:
-        score += 1  # Mild absorption
+        # How much did mean amplitude DROP? (water absorbs signal)
+        amp_drop = bl_amp - mean_amp
+        # How much did angle variance INCREASE? (water causes asymmetry)
+        var_increase = angle_var - bl_var
+        # How much did position range INCREASE?
+        range_increase = pos_range - bl_range
+        # How much did std CHANGE?
+        std_change = abs(std_amp - bl_std)
+        
+        print(f"  [BASELINE] amp_drop={amp_drop:.2f}, var_increase={var_increase:.4f}, range_increase={range_increase:.2f}, std_change={std_change:.2f}")
+        
+        # Amplitude drop scoring (most reliable feature)
+        if amp_drop > 2.0:
+            score += 4
+        elif amp_drop > 1.0:
+            score += 3
+        elif amp_drop > 0.5:
+            score += 2
+        elif amp_drop > 0.2:
+            score += 1
+        
+        # Variance increase scoring
+        if var_increase > 1.0:
+            score += 3
+        elif var_increase > 0.3:
+            score += 2
+        elif var_increase > 0.1:
+            score += 1
+        
+        # Range increase scoring
+        if range_increase > 3.0:
+            score += 2
+        elif range_increase > 1.0:
+            score += 1
+        
+        # Std change scoring
+        if std_change > 1.5:
+            score += 1
+    else:
+        # ═══ NO BASELINE — use per-position amplitude pattern ═══
+        print("  [CLASSIFY] WARNING: No baseline! Run baseline scan first.")
+        # Just compare per-position amplitudes against each other
+        # Positions where water is in the path will have LOWER amplitude
+        sorted_means = np.sort(pos_means)
+        # Ratio of weakest positions to strongest
+        weak_avg = np.mean(sorted_means[:4])   # 4 weakest positions
+        strong_avg = np.mean(sorted_means[-4:]) # 4 strongest positions
+        ratio = weak_avg / (strong_avg + 0.001)
+        
+        print(f"  [CLASSIFY] weak_avg={weak_avg:.2f}, strong_avg={strong_avg:.2f}, ratio={ratio:.3f}")
+        
+        if ratio < 0.5:
+            score = 6  # Severe: some angles heavily blocked
+        elif ratio < 0.7:
+            score = 4  # Moderate
+        elif ratio < 0.85:
+            score = 2  # Mild
+        else:
+            score = 0  # Healthy: uniform signal
     
-    # Classify based on combined score
     print(f"  [CLASSIFY] mean_amp={mean_amp:.2f}, angle_var={angle_var:.4f}, pos_range={pos_range:.2f}, std={std_amp:.2f}, score={score}")
     
     if score >= 5:
         severity = "Severe"
-        confidence = 0.88
+        confidence = 0.90
         water_ml = 150
     elif score >= 3:
         severity = "Moderate"
@@ -375,6 +514,16 @@ class DashHandler(http.server.SimpleHTTPRequestHandler):
                 t = threading.Thread(target=run_live_scan, daemon=True)
                 t.start()
                 self._json({"message": "Scan started"})
+        elif self.path == '/api/scan/baseline':
+            # Baseline scan — runs hardware scan and saves as healthy reference
+            if live_state["status"] == "scanning":
+                self._json({"error": "Scan already running"}, 400)
+            else:
+                live_state["status"] = "scanning"
+                live_state["result"] = None
+                t = threading.Thread(target=run_baseline_scan, daemon=True)
+                t.start()
+                self._json({"message": "Baseline scan started"})
         elif self.path == '/api/scan/demo':
             # Demo mode - simulate a scan result without hardware
             live_state["status"] = "processing"
@@ -418,6 +567,10 @@ if __name__ == '__main__':
     # Load data
     print("\n  Loading scan data...")
     load_scan_data()
+
+    # Load baseline
+    print("  Loading baseline...")
+    load_baseline()
 
     # Try loading model
     print("  Loading U-Net model...")
