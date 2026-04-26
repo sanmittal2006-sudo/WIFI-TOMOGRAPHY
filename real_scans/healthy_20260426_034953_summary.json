@@ -1,0 +1,122 @@
+{
+  "scan_info": {
+    "condition": "healthy",
+    "start_time": "2026-04-26 03:49:53",
+    "end_time": "2026-04-26 03:53:13",
+    "duration_seconds": 200,
+    "positions_done": 16,
+    "positions_total": 16,
+    "frames_per_pos": 100,
+    "automated": true
+  },
+  "hardware": {
+    "rx_port": "COM7",
+    "motor_port": "COM11",
+    "phantom_diameter": "20 cm",
+    "fill_height": "13 cm",
+    "antenna_distance": "15 cm from shaft"
+  },
+  "quality_metrics": {
+    "positions_successful": 16,
+    "positions_failed": 0,
+    "mean_rssi_dbm": -39.1
+  },
+  "per_position": {
+    "pos_00_0.0deg": {
+      "timestamp": "2026-04-26 03:50:03.682",
+      "rssi_dbm": -38.8,
+      "n_frames": 100,
+      "amp_mean": 3.042
+    },
+    "pos_01_22.5deg": {
+      "timestamp": "2026-04-26 03:50:15.641",
+      "rssi_dbm": -39.4,
+      "n_frames": 100,
+      "amp_mean": 1.984
+    },
+    "pos_02_45.0deg": {
+      "timestamp": "2026-04-26 03:50:37.207",
+      "rssi_dbm": -39.7,
+      "n_frames": 100,
+      "amp_mean": 0.863
+    },
+    "pos_03_67.5deg": {
+      "timestamp": "2026-04-26 03:50:49.176",
+      "rssi_dbm": -39.6,
+      "n_frames": 100,
+      "amp_mean": 1.695
+    },
+    "pos_04_90.0deg": {
+      "timestamp": "2026-04-26 03:51:01.258",
+      "rssi_dbm": -39.7,
+      "n_frames": 100,
+      "amp_mean": 2.024
+    },
+    "pos_05_112.5deg": {
+      "timestamp": "2026-04-26 03:51:13.027",
+      "rssi_dbm": -39.2,
+      "n_frames": 100,
+      "amp_mean": 1.05
+    },
+    "pos_06_135.0deg": {
+      "timestamp": "2026-04-26 03:51:24.788",
+      "rssi_dbm": -38.4,
+      "n_frames": 100,
+      "amp_mean": 0.887
+    },
+    "pos_07_157.5deg": {
+      "timestamp": "2026-04-26 03:51:36.616",
+      "rssi_dbm": -38.2,
+      "n_frames": 100,
+      "amp_mean": 1.691
+    },
+    "pos_08_180.0deg": {
+      "timestamp": "2026-04-26 03:51:48.493",
+      "rssi_dbm": -38.3,
+      "n_frames": 100,
+      "amp_mean": 2.661
+    },
+    "pos_09_202.5deg": {
+      "timestamp": "2026-04-26 03:52:00.376",
+      "rssi_dbm": -38.3,
+      "n_frames": 100,
+      "amp_mean": 1.89
+    },
+    "pos_10_225.0deg": {
+      "timestamp": "2026-04-26 03:52:12.427",
+      "rssi_dbm": -38.6,
+      "n_frames": 100,
+      "amp_mean": 1.2
+    },
+    "pos_11_247.5deg": {
+      "timestamp": "2026-04-26 03:52:24.120",
+      "rssi_dbm": -37.9,
+      "n_frames": 100,
+      "amp_mean": 1.631
+    },
+    "pos_12_270.0deg": {
+      "timestamp": "2026-04-26 03:52:36.031",
+      "rssi_dbm": -39.2,
+      "n_frames": 100,
+      "amp_mean": 0.693
+    },
+    "pos_13_292.5deg": {
+      "timestamp": "2026-04-26 03:52:48.059",
+      "rssi_dbm": -39.6,
+      "n_frames": 100,
+      "amp_mean": 1.93
+    },
+    "pos_14_315.0deg": {
+      "timestamp": "2026-04-26 03:53:00.035",
+      "rssi_dbm": -40.6,
+      "n_frames": 100,
+      "amp_mean": 1.755
+    },
+    "pos_15_337.5deg": {
+      "timestamp": "2026-04-26 03:53:12.068",
+      "rssi_dbm": -39.9,
+      "n_frames": 100,
+      "amp_mean": 2.901
+    }
+  }
+}

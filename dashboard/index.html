@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wi-Fi Tomography — Lung & Water Anomaly Detection</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- ═══ HEADER ═══ -->
+    <header class="top-bar">
+        <div class="logo">
+            <svg class="wifi-icon" viewBox="0 0 24 24" width="28" height="28"><path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3a4.237 4.237 0 00-6 0zm-4-4l2 2a7.074 7.074 0 0110 0l2-2C15.14 9.14 8.87 9.14 5 13z" fill="#00d4ff"/></svg>
+            <div>
+                <span class="logo-title">Wi-Fi</span>
+                <span class="logo-sub">TOMOGRAPHY</span>
+            </div>
+        </div>
+        <h1 class="page-title" id="pageTitle">RECONSTRUCTION (DIELECTRIC MAP)</h1>
+        <p class="page-subtitle" id="pageSubtitle">Microwave Tomographic Reconstruction of Lung</p>
+        <div class="status-bar">
+            <div class="status-item"><span class="label">System Status</span><span class="value"><span class="dot green"></span> Ready</span></div>
+            <div class="status-item"><span class="label">Data Loaded</span><span class="value">4 Cases</span></div>
+            <div class="status-item"><span class="label">Current Time</span><span class="value" id="currentTime">--</span></div>
+        </div>
+    </header>
+
+    <div class="main-layout">
+        <!-- ═══ LEFT SIDEBAR ═══ -->
+        <aside class="sidebar">
+            <section class="sidebar-section">
+                <h3>CASE SELECTION</h3>
+                <div class="case-buttons">
+                    <button class="case-btn active" data-case="healthy" style="--accent:#4CAF50"><span class="lung-icon">🫁</span> Healthy (No Water)</button>
+                    <button class="case-btn" data-case="mild" style="--accent:#FFC107"><span class="lung-icon">🫁</span> Mild Water</button>
+                    <button class="case-btn" data-case="moderate" style="--accent:#FF9800"><span class="lung-icon">🫁</span> Moderate Water</button>
+                    <button class="case-btn" data-case="severe" style="--accent:#f44336"><span class="lung-icon">🫁</span> Severe Water</button>
+                </div>
+            </section>
+            <section class="sidebar-section">
+                <h3>VIEW OPTIONS</h3>
+                <div class="view-options">
+                    <label class="view-radio" data-view="live" style="color:#00ff88;font-weight:600"><input type="radio" name="view" value="live"> <span class="icon">📡</span> LIVE DETECTION</label>
+                    <label class="view-radio active" data-view="heatmap"><input type="radio" name="view" value="heatmap" checked> <span class="icon">🔥</span> Heatmap (Reconstruction)</label>
+                    <label class="view-radio" data-view="binary"><input type="radio" name="view" value="binary"> <span class="icon">🎯</span> Binary Mask (Prediction)</label>
+                    <label class="view-radio" data-view="gtmask"><input type="radio" name="view" value="gtmask"> <span class="icon">🔲</span> GT Mask (Bottle Contour)</label>
+                    <label class="view-radio" data-view="overlay"><input type="radio" name="view" value="overlay"> <span class="icon">◐</span> GT Overlay (Pred vs GT)</label>
+                    <label class="view-radio" data-view="centroids"><input type="radio" name="view" value="centroids"> <span class="icon">⊕</span> Centroids & Error</label>
+                    <label class="view-radio" data-view="uncertainty"><input type="radio" name="view" value="uncertainty"> <span class="icon">◉</span> Uncertainty Map</label>
+                    <label class="view-radio" data-view="comparison"><input type="radio" name="view" value="comparison"> <span class="icon">📊</span> BIM Severity Compare</label>
+                    <label class="view-radio" data-view="training"><input type="radio" name="view" value="training"> <span class="icon">🧠</span> BIM Training</label>
+                    <label class="view-radio" data-view="phantom"><input type="radio" name="view" value="phantom"> <span class="icon">🔬</span> Real Phantom Scans</label>
+                    <label class="view-radio" data-view="meepdata"><input type="radio" name="view" value="meepdata"> <span class="icon">📡</span> MEEP Data (100 Samples)</label>
+                    <label class="view-radio" data-view="realscan"><input type="radio" name="view" value="realscan"> <span class="icon">⚡</span> Real Scan Analysis</label>
+                    <label class="view-radio" data-view="summary"><input type="radio" name="view" value="summary"> <span class="icon">📋</span> Summary Report</label>
+                </div>
+            </section>
+            <section class="sidebar-section" id="controlsSection">
+                <h3>DISPLAY SETTINGS</h3>
+                <div class="control-group">
+                    <label>Color Map<select id="colorMap"><option>Inferno</option><option>Hot</option><option>Viridis</option><option>Plasma</option></select></label>
+                    <label>Threshold<input type="range" id="threshold" min="0" max="100" value="50"><span id="threshVal">0.50</span></label>
+                    <label><input type="checkbox" id="showLungBoundary" checked> Show Lung Boundary</label>
+                    <label><input type="checkbox" id="showGrid"> Show Grid</label>
+                </div>
+            </section>
+        </aside>
+
+        <!-- ═══ MAIN CONTENT ═══ -->
+        <main class="content" id="mainContent">
+            <!-- Dynamically filled by JS -->
+        </main>
+    </div>
+
+    <footer class="footer">
+        <span>Wi-Fi Tomography EL Project | Final Year Design</span>
+        <span>Microwave Imaging for Lung & Water Anomaly Detection</span>
+        <span>Team EL-2025</span>
+    </footer>
+
+    <script src="lungs.js"></script>
+    <script src="heatmap.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

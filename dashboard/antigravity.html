@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ANTI-GRAVITY — Wi-Fi Tomography BIM Dashboard</title>
+    <meta name="description" content="Real-time BIM reconstruction dashboard powered by MEEP FDTD simulation data">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="antigravity.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Floating particles background -->
+        <canvas id="particles"></canvas>
+        
+        <!-- Header -->
+        <header id="header">
+            <div class="logo-group">
+                <div class="logo-orb"><div class="orb-inner"></div></div>
+                <div>
+                    <span class="logo-title">ANTI-GRAVITY</span>
+                    <span class="logo-sub">Wi-Fi Tomography • MEEP FDTD</span>
+                </div>
+            </div>
+            <div class="header-center">
+                <div class="severity-tabs" id="severityTabs">
+                    <button class="sev-tab active" data-level="none">Healthy</button>
+                    <button class="sev-tab" data-level="mild">Mild</button>
+                    <button class="sev-tab" data-level="moderate">Moderate</button>
+                    <button class="sev-tab" data-level="severe">Severe</button>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="stat-pill"><span class="pill-label">MEEP Samples</span><span class="pill-value" id="sampleCount">100</span></div>
+                <div class="stat-pill live"><span class="pill-label">Status</span><span class="pill-value"><span class="dot-live"></span> Live</span></div>
+            </div>
+        </header>
+
+        <!-- Main Grid -->
+        <main id="main">
+            <!-- LEFT: Lungs Visualization -->
+            <section class="panel lungs-panel" id="lungsPanel">
+                <div class="panel-header">
+                    <h2>BIM LUNG RECONSTRUCTION</h2>
+                    <span class="badge" id="lungBadge">HEALTHY</span>
+                </div>
+                <div class="lungs-container">
+                    <canvas id="lungCanvas" width="600" height="500"></canvas>
+                    <div class="lung-overlay-data" id="lungOverlay"></div>
+                </div>
+                <div class="lung-footer" id="lungFooter"></div>
+            </section>
+
+            <!-- RIGHT: Data Panels -->
+            <section class="right-stack">
+                <!-- MEEP Properties -->
+                <div class="panel glass" id="meepPanel">
+                    <div class="panel-header">
+                        <h2>MEEP SIMULATION PROPERTIES</h2>
+                        <span class="badge glass-badge">REAL DATA</span>
+                    </div>
+                    <div class="tree-view" id="meepTree"></div>
+                </div>
+
+                <!-- CSI Signal Chart -->
+                <div class="panel glass" id="csiPanel">
+                    <div class="panel-header">
+                        <h2>CSI DIFFERENTIAL SIGNAL</h2>
+                        <span class="badge" id="csiBadge">16 POSITIONS</span>
+                    </div>
+                    <canvas id="csiChart" width="500" height="180"></canvas>
+                    <div class="csi-stats" id="csiStats"></div>
+                </div>
+
+                <!-- BIM Config -->
+                <div class="panel glass" id="bimPanel">
+                    <div class="panel-header">
+                        <h2>BIM RECONSTRUCTION CONFIG</h2>
+                        <span class="badge">GAUSS-NEWTON</span>
+                    </div>
+                    <div class="tree-view" id="bimTree"></div>
+                </div>
+
+                <!-- Tissue Properties -->
+                <div class="panel glass" id="tissuePanel">
+                    <div class="panel-header">
+                        <h2>TISSUE DIELECTRIC PROPERTIES</h2>
+                        <span class="badge">ε_r @ 2.4 GHz</span>
+                    </div>
+                    <div class="tissue-bars" id="tissueBars"></div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer id="footer">
+            <span>ANTI-GRAVITY Dashboard • MEEP FDTD Validated</span>
+            <span id="footerTime"></span>
+            <span>Wi-Fi Tomography EL Project • 2025</span>
+        </footer>
+    </div>
+
+    <script src="antigravity.js"></script>
+</body>
+</html>

@@ -1,0 +1,50 @@
+# Wi-Fi Tomography Setup Details
+# Generated: 2026-04-24 23:26:13
+# Project: Pulmonary Edema Detection via Wi-Fi CSI Tomography
+
+[HARDWARE]
+TX_device           = ESP32-S3-DevKitC-1 N16R8
+RX_device           = ESP32-S3-DevKitC-1 N16R8
+WiFi_standard       = 802.11n (2.4 GHz band)
+Frequency_GHz       = 2.4
+Subcarriers         = 52 (HT20, active subcarriers)
+TX_power_dBm        = 20
+Baud_rate           = 921600
+
+[PHANTOM]
+Outer_diameter_cm   = 20
+Fill_height_cm      = 13
+Lung_diameter_cm    = 8
+Lung_count          = 2
+Phantom_medium      = Water + Glycerine IP (60:40 ratio) + NaCl 5g
+Medium_eps_r        = ~45 at 2.4 GHz
+Lung_eps_r          = 1 (air-filled hollow cylinders)
+Edema_simulant      = Water poured into right lung cylinder
+
+[SCANNING_GEOMETRY]
+Antenna_distance_cm = 18
+TX_RX_arrangement   = TX rotates with phantom, RX fixed
+Rotation_type       = Stepper motor (NEMA17, 22.5 deg/step)
+Num_positions       = 16
+Angular_step_deg    = 22.5
+Total_rotation_deg  = 360
+
+[DATA_FORMAT]
+Frames_per_position = 100
+Frame_rate_fps      = 20
+Duration_per_pos_s  = 5
+CSI_columns         = csi_real_sc00..csi_real_sc51 (real part)
+                      csi_imag_sc00..csi_imag_sc51 (imaginary part)
+RSSI_unit           = dBm
+
+[CONDITIONS]
+healthy   = No fluid in lungs (baseline)
+mild      = ~15ml water in right lung  (eps_r ~ 50)
+moderate  = ~50ml water in right lung  (eps_r ~ 65)
+severe    = ~150ml water in right lung (eps_r ~ 78)
+
+[FILES]
+healthy.csv   = 1600 frames (16 positions x 100 frames)
+mild.csv      = 1600 frames
+moderate.csv  = 1600 frames
+severe.csv    = 1600 frames
