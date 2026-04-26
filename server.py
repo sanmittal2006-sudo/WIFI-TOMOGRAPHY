@@ -34,6 +34,16 @@ live_state = {
     "result": None
 }
 scan_data_cache = {}
+baseline_csi = None  # Saved healthy baseline for comparison
+
+# Load baseline if exists
+BASELINE_FILE = BASE / "baseline_csi.npy"
+if BASELINE_FILE.exists():
+    try:
+        baseline_csi = np.load(str(BASELINE_FILE))
+        print(f"  Loaded baseline from {BASELINE_FILE}")
+    except:
+        pass
 
 # â”€â”€â”€ Load real scan data â”€â”€â”€
 def load_scan_data():
@@ -232,6 +242,14 @@ def run_live_scan():
 
         # Process with model
         csi_matrix = np.array(all_csi)
+        live_state["last_csi"] = csi_matrix  # Save for baseline
+        
+        # Auto-save as baseline if none exists
+        if baseline_csi is None:
+            baseline_csi = csi_matrix
+            np.save(str(BASELINE_FILE), baseline_csi)
+            print("  [BASELINE] Auto-saved first scan as baseline!")
+        
         result = classify_scan(csi_matrix)
         live_state["result"] = result
         live_state["status"] = "done"
@@ -244,12 +262,12 @@ def run_live_scan():
 def classify_scan(csi_matrix):
     """Classify a CSI matrix into severity levels.
     
-    Calibrated from REAL scan data:
-      healthy:  amp_mean=1.74, angle_var=0.47
-      mild:     amp_mean=1.49, angle_var=0.50
-      moderate: amp_mean=1.50, angle_var=0.89
-      severe:   amp_mean=1.90, angle_var=0.91
+    Uses multiple features including baseline comparison.
+    No-phantom baseline values (from earlier calibration):
+      mean_amp ~6.6, std ~3.95, angle_var ~0.09
     """
+    global baseline_csi
+    
     # Compute features
     mean_amp = np.mean(csi_matrix)
     std_amp = np.std(csi_matrix)
@@ -258,49 +276,67 @@ def classify_scan(csi_matrix):
     # Per-position mean amplitude
     pos_means = np.mean(csi_matrix, axis=1)
     angle_var = np.var(pos_means)
-    
-    # Feature: how much does amplitude vary across positions
     pos_range = np.max(pos_means) - np.min(pos_means)
     
+    # Compute amplitude difference from baseline
+    # Water absorbs signal -> amplitude changes
+    if baseline_csi is not None:
+        baseline_means = np.mean(baseline_csi, axis=1)
+        # How much each position changed from baseline
+        amp_diff = np.abs(pos_means - baseline_means)
+        mean_diff = np.mean(amp_diff)
+        max_diff = np.max(amp_diff)
+        # Correlation: if water changes the pattern
+        corr = np.corrcoef(pos_means, baseline_means)[0, 1] if len(pos_means) == len(baseline_means) else 1.0
+        decorrelation = 1.0 - abs(corr) if not np.isnan(corr) else 0
+    else:
+        mean_diff = 0
+        max_diff = 0
+        decorrelation = 0
+    
     # Multi-feature scoring
-    # BASELINE (no phantom): angle_var~0.09, pos_range~1.1, std~4.0
-    # Mild water adds ~50-100% more variance than baseline
     score = 0
     
-    # Angle variance scoring
-    # No phantom: ~0.09, Mild water: ~0.15-0.3, Severe: >1.0
+    # 1. Angle variance (detects uneven water placement)
     if angle_var > 1.0:
-        score += 3
-    elif angle_var > 0.4:
         score += 2
     elif angle_var > 0.15:
         score += 1
     
-    # Position range scoring
-    # No phantom: ~1.1, Mild water: ~1.5-2.5, Severe: >4.0
-    if pos_range > 4.0:
-        score += 3
-    elif pos_range > 2.5:
+    # 2. Position range
+    if pos_range > 3.0:
         score += 2
     elif pos_range > 1.5:
         score += 1
     
-    # Amplitude std scoring  
-    # No phantom: ~4.0, Mild water: ~4.5-5.5, Severe: >7.0
+    # 3. Amplitude std
     if std_amp > 6.5:
         score += 2
     elif std_amp > 4.5:
         score += 1
     
-    # Classify based on combined score (max possible = 8)
-    # Moderate water scan scored 7, so:
-    # Severe needs truly extreme values (score 8 = all maxed)
-    print(f"  [CLASSIFY] mean_amp={mean_amp:.2f}, angle_var={angle_var:.4f}, pos_range={pos_range:.2f}, std={std_amp:.2f}, score={score}")
+    # 4. Baseline comparison (KEY feature for large uniform water)
+    if mean_diff > 3.0:
+        score += 3
+    elif mean_diff > 1.5:
+        score += 2
+    elif mean_diff > 0.5:
+        score += 1
     
-    if score >= 8:
+    # 5. Decorrelation from baseline
+    if decorrelation > 0.3:
+        score += 2
+    elif decorrelation > 0.1:
+        score += 1
+    
+    print(f"  [CLASSIFY] mean_amp={mean_amp:.2f}, angle_var={angle_var:.4f}, pos_range={pos_range:.2f}, std={std_amp:.2f}")
+    print(f"  [CLASSIFY] baseline_diff={mean_diff:.2f}, decorr={decorrelation:.3f}, score={score}")
+    
+    # Classify (max possible score = 10)
+    if score >= 7:
         severity = "Severe"
         confidence = 0.88
-    elif score >= 5:
+    elif score >= 4:
         severity = "Moderate"
         confidence = 0.85
     elif score >= 1:
@@ -394,8 +430,17 @@ class DashHandler(http.server.SimpleHTTPRequestHandler):
                 t = threading.Thread(target=run_live_scan, daemon=True)
                 t.start()
                 self._json({"message": "Scan started"})
+        elif self.path == '/api/scan/baseline':
+            # Save current scan as healthy baseline
+            global baseline_csi
+            if live_state.get("last_csi") is not None:
+                baseline_csi = live_state["last_csi"]
+                np.save(str(BASELINE_FILE), baseline_csi)
+                self._json({"message": "Baseline saved!", "mean_amp": float(np.mean(baseline_csi))})
+                print(f"  [BASELINE] Saved! mean_amp={np.mean(baseline_csi):.2f}")
+            else:
+                self._json({"error": "No scan data. Run a scan first."}, 400)
         elif self.path == '/api/scan/demo':
-            # Demo mode - simulate a scan result without hardware
             live_state["status"] = "processing"
             live_state["message"] = "Running demo detection..."
             time.sleep(0.5)
@@ -403,7 +448,6 @@ class DashHandler(http.server.SimpleHTTPRequestHandler):
                 "severity": "Moderate",
                 "confidence": 0.91,
                 "affected_lung": "Right",
-                "water_volume_ml": 50,
                 "mean_amplitude": 14.3,
                 "amplitude_variance": 22.5,
                 "anomaly_detected": True,
