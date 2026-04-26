@@ -172,25 +172,33 @@ def run_live_scan():
             live_state["message"] = f"Scanning position {pos+1}/16 ({pos*22.5}\u00b0)"
             print(f"  [LIVE] Position {pos+1}/16...")
 
-            # Collect CSI for 3 seconds
+            # Collect CSI for 3 seconds, with retry if 0 packets
             csi_at_pos = []
-            end_time = time.time() + 3
-            while time.time() < end_time:
-                line = rx.readline().decode('utf-8', errors='ignore').strip()
-                if 'CSI_DATA' in line:
-                    try:
-                        # Format: CSI_DATA,seq,rssi,noise,len,[r0,i0,r1,i1,...]
-                        bracket_start = line.index('[')
-                        bracket_end = line.index(']')
-                        values_str = line[bracket_start+1:bracket_end]
-                        csi_raw = [int(x.strip()) for x in values_str.split(',') if x.strip()]
-                        amps = []
-                        for i in range(0, len(csi_raw)-1, 2):
-                            amps.append(np.sqrt(csi_raw[i]**2 + csi_raw[i+1]**2))
-                        if amps:
-                            csi_at_pos.append(amps[:64])
-                    except Exception as e:
-                        pass  # Skip malformed lines
+            for attempt in range(3):  # Retry up to 3 times
+                if attempt > 0:
+                    print(f"  [LIVE]   Retry {attempt}/2 - flushing and waiting...")
+                    rx.reset_input_buffer()
+                    time.sleep(1)
+                
+                end_time = time.time() + 3
+                while time.time() < end_time:
+                    line = rx.readline().decode('utf-8', errors='ignore').strip()
+                    if 'CSI_DATA' in line:
+                        try:
+                            bracket_start = line.index('[')
+                            bracket_end = line.index(']')
+                            values_str = line[bracket_start+1:bracket_end]
+                            csi_raw = [int(x.strip()) for x in values_str.split(',') if x.strip()]
+                            amps = []
+                            for i in range(0, len(csi_raw)-1, 2):
+                                amps.append(np.sqrt(csi_raw[i]**2 + csi_raw[i+1]**2))
+                            if amps:
+                                csi_at_pos.append(amps[:64])
+                        except Exception as e:
+                            pass
+                
+                if csi_at_pos:
+                    break  # Got data, no need to retry
 
             pkt_count = len(csi_at_pos)
             print(f"  [LIVE]   Got {pkt_count} CSI packets at pos {pos+1}")
@@ -199,7 +207,7 @@ def run_live_scan():
                 mean_csi = np.mean(csi_at_pos, axis=0)
                 all_csi.append(mean_csi)
             else:
-                print(f"  [LIVE]   WARNING: No CSI data at position {pos+1}!")
+                print(f"  [LIVE]   WARNING: No CSI data at position {pos+1} after 3 attempts!")
                 all_csi.append(np.zeros(64))
 
             # Move motor to next position
