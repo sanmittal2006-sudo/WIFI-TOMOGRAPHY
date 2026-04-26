@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 Wi-Fi Tomography Dashboard Server + Live Detection
 ====================================================
@@ -14,7 +14,7 @@ from pathlib import Path
 sys.stdout.reconfigure(line_buffering=True)
 socketserver.TCPServer.allow_reuse_address = True
 
-# ─── Config ───
+# â”€â”€â”€ Config â”€â”€â”€
 PORT = 8080
 CSI_PORT = "COM7"
 MOTOR_PORT = "COM11"
@@ -25,7 +25,7 @@ DASH = BASE / "dashboard"
 SCANS = BASE / "real_scans"
 MODEL_PATH = BASE / "unet_best.pth"
 
-# ─── Globals ───
+# â”€â”€â”€ Globals â”€â”€â”€
 live_state = {
     "status": "idle",  # idle, scanning, processing, done, error
     "progress": 0,
@@ -35,7 +35,7 @@ live_state = {
 }
 scan_data_cache = {}
 
-# ─── Load real scan data ───
+# â”€â”€â”€ Load real scan data â”€â”€â”€
 def load_scan_data():
     """Load all available .npz scan files"""
     global scan_data_cache
@@ -72,7 +72,7 @@ def load_scan_data():
             pass
     print(f"  Loaded {len(scan_data_cache)} scan datasets: {list(scan_data_cache.keys())}")
 
-# ─── U-Net Model (lazy load) ───
+# â”€â”€â”€ U-Net Model (lazy load) â”€â”€â”€
 unet_model = None
 def load_model():
     global unet_model
@@ -130,7 +130,7 @@ def load_model():
         print(f"  [!!] Could not load model: {e}")
         return False
 
-# ─── Live scan thread ───
+# â”€â”€â”€ Live scan thread â”€â”€â”€
 def run_live_scan():
     """Perform a live 16-position scan and classify"""
     global live_state
@@ -140,7 +140,7 @@ def run_live_scan():
         live_state["message"] = "Connecting to hardware..."
         live_state["progress"] = 0
 
-        # Connect — NOTE: motor is 9600 baud, CSI is 115200
+        # Connect â€” NOTE: motor is 9600 baud, CSI is 115200
         print(f"  [LIVE] Connecting RX on {CSI_PORT} at {CSI_BAUD}...")
         rx = serial.Serial(CSI_PORT, CSI_BAUD, timeout=2)
         print(f"  [LIVE] Connecting Motor on {MOTOR_PORT} at {MOTOR_BAUD}...")
@@ -309,16 +309,16 @@ def classify_scan(csi_matrix):
         confidence = 0.95
 
     # Detect which lung is affected (AFTER severity is set)
-    # First 8 positions (0-7): TX side → Left lung
-    # Last 8 positions (8-15): RX side → Right lung
+    # First 8 positions (0-7): TX side â†’ Left lung
+    # Last 8 positions (8-15): RX side â†’ Right lung
     if severity != "Healthy" and len(pos_means) >= 16:
         first_half = pos_means[:8]
         second_half = pos_means[8:]
         var_first = np.var(first_half)
         var_second = np.var(second_half)
         
-        # If both halves have similar variance → Both lungs affected
-        # If one is much higher → only that lung
+        # If both halves have similar variance â†’ Both lungs affected
+        # If one is much higher â†’ only that lung
         ratio = max(var_first, var_second) / (min(var_first, var_second) + 1e-10)
         if ratio < 2.0 and var_first > 0.01 and var_second > 0.01:
             affected_lung = "Both"
@@ -326,7 +326,7 @@ def classify_scan(csi_matrix):
             affected_lung = "Left"
         else:
             affected_lung = "Right"
-        print(f"  [LUNG] first_var={var_first:.4f}, second_var={var_second:.4f}, ratio={ratio:.2f} → {affected_lung}")
+        print(f"  [LUNG] first_var={var_first:.4f}, second_var={var_second:.4f}, ratio={ratio:.2f} â†’ {affected_lung}")
     elif severity != "Healthy":
         affected_lung = "Right"
     else:
@@ -349,7 +349,7 @@ def classify_scan(csi_matrix):
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
     }
 
-# ─── HTTP Handler ───
+# â”€â”€â”€ HTTP Handler â”€â”€â”€
 class DashHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(DASH), **kwargs)
@@ -426,7 +426,7 @@ class DashHandler(http.server.SimpleHTTPRequestHandler):
         if '/api/' not in str(args[0]):
             super().log_message(format, *args)
 
-# ─── Main ───
+# â”€â”€â”€ Main â”€â”€â”€
 if __name__ == '__main__':
     print("=" * 60)
     print("  Wi-Fi Tomography Dashboard Server")
@@ -447,3 +447,4 @@ if __name__ == '__main__':
 
     with socketserver.TCPServer(("", PORT), DashHandler) as httpd:
         httpd.serve_forever()
+
