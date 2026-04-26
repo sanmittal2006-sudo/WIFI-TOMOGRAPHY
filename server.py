@@ -284,22 +284,6 @@ def classify_scan(csi_matrix):
     elif std_amp > 5.0:
         score += 1
     
-    # Detect which lung is affected
-    # First 8 positions (0-7): TX side → Left lung
-    # Last 8 positions (8-15): RX side → Right lung
-    # The side with MORE signal disruption has the water
-    if severity != "Healthy" and len(pos_means) >= 16:
-        first_half = pos_means[:8]
-        second_half = pos_means[8:]
-        var_first = np.var(first_half)
-        var_second = np.var(second_half)
-        affected_lung = "Left" if var_first > var_second else "Right"
-        print(f"  [LUNG] first_half_var={var_first:.4f}, second_half_var={var_second:.4f} → {affected_lung}")
-    elif severity != "Healthy":
-        affected_lung = "Right"  # Default if not enough data
-    else:
-        affected_lung = "None"
-    
     # Classify based on combined score
     print(f"  [CLASSIFY] mean_amp={mean_amp:.2f}, angle_var={angle_var:.4f}, pos_range={pos_range:.2f}, std={std_amp:.2f}, score={score}")
     
@@ -315,6 +299,21 @@ def classify_scan(csi_matrix):
     else:
         severity = "Healthy"
         confidence = 0.95
+
+    # Detect which lung is affected (AFTER severity is set)
+    # First 8 positions (0-7): TX side → Left lung
+    # Last 8 positions (8-15): RX side → Right lung
+    if severity != "Healthy" and len(pos_means) >= 16:
+        first_half = pos_means[:8]
+        second_half = pos_means[8:]
+        var_first = np.var(first_half)
+        var_second = np.var(second_half)
+        affected_lung = "Left" if var_first > var_second else "Right"
+        print(f"  [LUNG] first_half_var={var_first:.4f}, second_half_var={var_second:.4f} → {affected_lung}")
+    elif severity != "Healthy":
+        affected_lung = "Right"
+    else:
+        affected_lung = "None"
 
     return {
         "severity": severity,
