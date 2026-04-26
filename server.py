@@ -256,32 +256,32 @@ def classify_scan(csi_matrix):
     
     # Multi-feature scoring
     # BASELINE (no phantom): angle_var~0.09, pos_range~1.1, std~4.0
-    # These thresholds must be ABOVE baseline noise floor
+    # Mild water adds ~50-100% more variance than baseline
     score = 0
     
     # Angle variance scoring
-    # No phantom: ~0.09, With water: should be higher
-    if angle_var > 2.0:
+    # No phantom: ~0.09, Mild water: ~0.15-0.3, Severe: >1.0
+    if angle_var > 1.0:
         score += 3
-    elif angle_var > 1.0:
+    elif angle_var > 0.4:
         score += 2
-    elif angle_var > 0.5:
+    elif angle_var > 0.15:
         score += 1
     
     # Position range scoring
-    # No phantom: ~1.1, With water: should be >2
-    if pos_range > 5.0:
+    # No phantom: ~1.1, Mild water: ~1.5-2.5, Severe: >4.0
+    if pos_range > 4.0:
         score += 3
-    elif pos_range > 3.0:
+    elif pos_range > 2.5:
         score += 2
-    elif pos_range > 2.0:
+    elif pos_range > 1.5:
         score += 1
     
     # Amplitude std scoring  
-    # No phantom: ~4.0, With water: should be >5
-    if std_amp > 7.0:
+    # No phantom: ~4.0, Mild water: ~4.5-5.5, Severe: >7.0
+    if std_amp > 6.5:
         score += 2
-    elif std_amp > 5.0:
+    elif std_amp > 4.5:
         score += 1
     
     # Classify based on combined score
@@ -308,8 +308,17 @@ def classify_scan(csi_matrix):
         second_half = pos_means[8:]
         var_first = np.var(first_half)
         var_second = np.var(second_half)
-        affected_lung = "Left" if var_first > var_second else "Right"
-        print(f"  [LUNG] first_half_var={var_first:.4f}, second_half_var={var_second:.4f} → {affected_lung}")
+        
+        # If both halves have similar variance → Both lungs affected
+        # If one is much higher → only that lung
+        ratio = max(var_first, var_second) / (min(var_first, var_second) + 1e-10)
+        if ratio < 2.0 and var_first > 0.01 and var_second > 0.01:
+            affected_lung = "Both"
+        elif var_first > var_second:
+            affected_lung = "Left"
+        else:
+            affected_lung = "Right"
+        print(f"  [LUNG] first_var={var_first:.4f}, second_var={var_second:.4f}, ratio={ratio:.2f} → {affected_lung}")
     elif severity != "Healthy":
         affected_lung = "Right"
     else:
