@@ -564,7 +564,8 @@ function showLiveResult(r){
     <div style="font-size:13px;color:var(--text-secondary);margin-bottom:15px">Confidence: <b style="color:${c}">${(r.confidence*100).toFixed(0)}%</b></div>
     <div class="metrics-grid" style="text-align:left">
       <div class="metric-item"><span class="m-label">Anomaly</span><span class="m-value ${r.anomaly_detected?'bad':'good'}">${r.anomaly_detected?'YES':'NO'}</span></div>
-      <div class="metric-item"><span class="m-label">Affected Lung</span><span class="m-value">${r.affected_lung}</span></div>
+      <div class="metric-item"><span class="m-label">Affected</span><span class="m-value">${r.affected_lung}</span></div>
+      <div class="metric-item"><span class="m-label">Water (ml)</span><span class="m-value">${r.water_volume_ml}</span></div>
       <div class="metric-item"><span class="m-label">Mean Amp</span><span class="m-value">${r.mean_amplitude}</span></div>
       <div class="metric-item"><span class="m-label">Variance</span><span class="m-value">${r.amplitude_variance}</span></div>
       <div class="metric-item"><span class="m-label">Time</span><span class="m-value" style="font-size:9px">${r.timestamp}</span></div>

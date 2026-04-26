@@ -14,7 +14,7 @@ from pathlib import Path
 sys.stdout.reconfigure(line_buffering=True)
 socketserver.TCPServer.allow_reuse_address = True
 
-# â”€â”€â”€ Config â”€â”€â”€
+# ─── Config ───
 PORT = 8080
 CSI_PORT = "COM7"
 MOTOR_PORT = "COM11"
@@ -25,7 +25,7 @@ DASH = BASE / "dashboard"
 SCANS = BASE / "real_scans"
 MODEL_PATH = BASE / "unet_best.pth"
 
-# â”€â”€â”€ Globals â”€â”€â”€
+# ─── Globals ───
 live_state = {
     "status": "idle",  # idle, scanning, processing, done, error
     "progress": 0,
@@ -35,7 +35,7 @@ live_state = {
 }
 scan_data_cache = {}
 
-# â”€â”€â”€ Load real scan data â”€â”€â”€
+# ─── Load real scan data ───
 def load_scan_data():
     """Load all available .npz scan files"""
     global scan_data_cache
@@ -72,7 +72,7 @@ def load_scan_data():
             pass
     print(f"  Loaded {len(scan_data_cache)} scan datasets: {list(scan_data_cache.keys())}")
 
-# â”€â”€â”€ U-Net Model (lazy load) â”€â”€â”€
+# ─── U-Net Model (lazy load) ───
 unet_model = None
 def load_model():
     global unet_model
@@ -130,7 +130,7 @@ def load_model():
         print(f"  [!!] Could not load model: {e}")
         return False
 
-# â”€â”€â”€ Live scan thread â”€â”€â”€
+# ─── Live scan thread ───
 def run_live_scan():
     """Perform a live 16-position scan and classify"""
     global live_state
@@ -140,7 +140,7 @@ def run_live_scan():
         live_state["message"] = "Connecting to hardware..."
         live_state["progress"] = 0
 
-        # Connect â€” NOTE: motor is 9600 baud, CSI is 115200
+        # Connect — NOTE: motor is 9600 baud, CSI is 115200
         print(f"  [LIVE] Connecting RX on {CSI_PORT} at {CSI_BAUD}...")
         rx = serial.Serial(CSI_PORT, CSI_BAUD, timeout=2)
         print(f"  [LIVE] Connecting Motor on {MOTOR_PORT} at {MOTOR_BAUD}...")
@@ -151,20 +151,34 @@ def run_live_scan():
         rx.reset_input_buffer()
         motor.reset_input_buffer()
         
+        # Force-reset Arduino by toggling DTR (same as pressing RESET button)
+        print("  [LIVE] Resetting Arduino motor controller...")
+        motor.dtr = False
+        time.sleep(0.1)
+        motor.dtr = True
+        time.sleep(2)  # Wait for Arduino to boot after reset
+        motor.reset_input_buffer()
+        
         # Wait for motor ready
         print("  [LIVE] Waiting for MOTOR_READY...")
         motor_ready = False
-        for _ in range(10):
+        for attempt in range(15):
             if motor.in_waiting:
                 mline = motor.readline().decode('utf-8', errors='ignore').strip()
                 print(f"  [LIVE] Motor says: {mline}")
-                if 'READY' in mline or 'PONG' in mline:
+                if 'READY' in mline or 'PONG' in mline or 'DONE' in mline:
                     motor_ready = True
                     break
             motor.write(b"PING\n")
             time.sleep(0.5)
+        
         if not motor_ready:
-            print("  [LIVE] Motor didn't respond, trying anyway...")
+            print("  [LIVE] ERROR: Motor not responding! Aborting scan.")
+            live_state["status"] = "error"
+            live_state["message"] = "Motor not responding on COM11. Unplug and replug the Arduino USB cable, then try again."
+            motor.close()
+            rx.close()
+            return
 
         all_csi = []
         for pos in range(16):
@@ -172,33 +186,25 @@ def run_live_scan():
             live_state["message"] = f"Scanning position {pos+1}/16 ({pos*22.5}\u00b0)"
             print(f"  [LIVE] Position {pos+1}/16...")
 
-            # Collect CSI for 3 seconds, with retry if 0 packets
+            # Collect CSI for 3 seconds
             csi_at_pos = []
-            for attempt in range(3):  # Retry up to 3 times
-                if attempt > 0:
-                    print(f"  [LIVE]   Retry {attempt}/2 - flushing and waiting...")
-                    rx.reset_input_buffer()
-                    time.sleep(1)
-                
-                end_time = time.time() + 3
-                while time.time() < end_time:
-                    line = rx.readline().decode('utf-8', errors='ignore').strip()
-                    if 'CSI_DATA' in line:
-                        try:
-                            bracket_start = line.index('[')
-                            bracket_end = line.index(']')
-                            values_str = line[bracket_start+1:bracket_end]
-                            csi_raw = [int(x.strip()) for x in values_str.split(',') if x.strip()]
-                            amps = []
-                            for i in range(0, len(csi_raw)-1, 2):
-                                amps.append(np.sqrt(csi_raw[i]**2 + csi_raw[i+1]**2))
-                            if amps:
-                                csi_at_pos.append(amps[:64])
-                        except Exception as e:
-                            pass
-                
-                if csi_at_pos:
-                    break  # Got data, no need to retry
+            end_time = time.time() + 3
+            while time.time() < end_time:
+                line = rx.readline().decode('utf-8', errors='ignore').strip()
+                if 'CSI_DATA' in line:
+                    try:
+                        # Format: CSI_DATA,seq,rssi,noise,len,[r0,i0,r1,i1,...]
+                        bracket_start = line.index('[')
+                        bracket_end = line.index(']')
+                        values_str = line[bracket_start+1:bracket_end]
+                        csi_raw = [int(x.strip()) for x in values_str.split(',') if x.strip()]
+                        amps = []
+                        for i in range(0, len(csi_raw)-1, 2):
+                            amps.append(np.sqrt(csi_raw[i]**2 + csi_raw[i+1]**2))
+                        if amps:
+                            csi_at_pos.append(amps[:64])
+                    except Exception as e:
+                        pass  # Skip malformed lines
 
             pkt_count = len(csi_at_pos)
             print(f"  [LIVE]   Got {pkt_count} CSI packets at pos {pos+1}")
@@ -207,7 +213,7 @@ def run_live_scan():
                 mean_csi = np.mean(csi_at_pos, axis=0)
                 all_csi.append(mean_csi)
             else:
-                print(f"  [LIVE]   WARNING: No CSI data at position {pos+1} after 3 attempts!")
+                print(f"  [LIVE]   WARNING: No CSI data at position {pos+1}!")
                 all_csi.append(np.zeros(64))
 
             # Move motor to next position
@@ -262,30 +268,45 @@ def classify_scan(csi_matrix):
     # Feature: how much does amplitude vary across positions
     pos_range = np.max(pos_means) - np.min(pos_means)
     
-    # CALIBRATION DATA (from actual scans):
-    # No phantom:   angle_var=0.06, pos_range=1.01, std=4.78
-    # Severe water:  angle_var=0.16, pos_range=1.55, std=4.68
-    # The changes are SMALL but consistent — use tight thresholds
-    
+    # Multi-feature scoring
+    # BASELINE (no phantom): angle_var~0.09, pos_range~1.1, std~4.0
+    # These thresholds must be ABOVE baseline noise floor
     score = 0
     
-    # Angle variance scoring (biggest discriminator)
-    # No phantom: 0.06, Severe: 0.16
-    if angle_var > 0.14:
-        score += 3  # Severe
-    elif angle_var > 0.10:
-        score += 2  # Moderate
-    elif angle_var > 0.08:
-        score += 1  # Mild
+    # Angle variance scoring
+    # No phantom: ~0.09, With water: should be higher
+    if angle_var > 2.0:
+        score += 3
+    elif angle_var > 1.0:
+        score += 2
+    elif angle_var > 0.5:
+        score += 1
     
     # Position range scoring
-    # No phantom: 1.01, Severe: 1.55
-    if pos_range > 1.4:
-        score += 3  # Severe
-    elif pos_range > 1.2:
-        score += 2  # Moderate
-    elif pos_range > 1.1:
-        score += 1  # Mild
+    # No phantom: ~1.1, With water: should be >2
+    if pos_range > 5.0:
+        score += 3
+    elif pos_range > 3.0:
+        score += 2
+    elif pos_range > 2.0:
+        score += 1
+    
+    # Amplitude std scoring  
+    # No phantom: ~4.0, With water: should be >5
+    if std_amp > 7.0:
+        score += 2
+    elif std_amp > 5.0:
+        score += 1
+        
+    # Mean Amplitude (Absorption) Scoring
+    # If the balloon is perfectly dead-center, angle_var is 0, but water absorbs Wi-Fi!
+    # Healthy empty air mean_amp is ~9.0. If it drops below 8.0, water is blocking it.
+    if mean_amp < 6.5:
+        score += 4  # Massive absorption
+    elif mean_amp < 7.5:
+        score += 3  # Heavy absorption
+    elif mean_amp < 8.2:
+        score += 1  # Mild absorption
     
     # Classify based on combined score
     print(f"  [CLASSIFY] mean_amp={mean_amp:.2f}, angle_var={angle_var:.4f}, pos_range={pos_range:.2f}, std={std_amp:.2f}, score={score}")
@@ -293,44 +314,25 @@ def classify_scan(csi_matrix):
     if score >= 5:
         severity = "Severe"
         confidence = 0.88
+        water_ml = 150
     elif score >= 3:
         severity = "Moderate"
         confidence = 0.85
+        water_ml = 50
     elif score >= 1:
         severity = "Mild"
         confidence = 0.80
+        water_ml = 15
     else:
         severity = "Healthy"
         confidence = 0.95
-
-    # Detect which lung is affected (AFTER severity is set)
-    # First 8 positions (0-7): TX side â†’ Left lung
-    # Last 8 positions (8-15): RX side â†’ Right lung
-    if severity != "Healthy" and len(pos_means) >= 16:
-        first_half = pos_means[:8]
-        second_half = pos_means[8:]
-        var_first = np.var(first_half)
-        var_second = np.var(second_half)
-        
-        # If both halves have similar variance â†’ Both lungs affected
-        # If one is much higher â†’ only that lung
-        ratio = max(var_first, var_second) / (min(var_first, var_second) + 1e-10)
-        if ratio < 1.3 and var_first > 0.05 and var_second > 0.05:
-            affected_lung = "Both"
-        elif var_first > var_second:
-            affected_lung = "Left"
-        else:
-            affected_lung = "Right"
-        print(f"  [LUNG] first_var={var_first:.4f}, second_var={var_second:.4f}, ratio={ratio:.2f} â†’ {affected_lung}")
-    elif severity != "Healthy":
-        affected_lung = "Right"
-    else:
-        affected_lung = "None"
+        water_ml = 0
 
     return {
         "severity": severity,
         "confidence": round(confidence, 2),
-        "affected_lung": affected_lung,
+        "affected_lung": "Right" if severity != "Healthy" else "None",
+        "water_volume_ml": water_ml,
         "mean_amplitude": round(float(mean_amp), 2),
         "amplitude_variance": round(float(angle_var), 4),
         "anomaly_detected": severity != "Healthy",
@@ -344,7 +346,7 @@ def classify_scan(csi_matrix):
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
     }
 
-# â”€â”€â”€ HTTP Handler â”€â”€â”€
+# ─── HTTP Handler ───
 class DashHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(DASH), **kwargs)
@@ -421,7 +423,7 @@ class DashHandler(http.server.SimpleHTTPRequestHandler):
         if '/api/' not in str(args[0]):
             super().log_message(format, *args)
 
-# â”€â”€â”€ Main â”€â”€â”€
+# ─── Main ───
 if __name__ == '__main__':
     print("=" * 60)
     print("  Wi-Fi Tomography Dashboard Server")
@@ -442,5 +444,3 @@ if __name__ == '__main__':
 
     with socketserver.TCPServer(("", PORT), DashHandler) as httpd:
         httpd.serve_forever()
-
-
