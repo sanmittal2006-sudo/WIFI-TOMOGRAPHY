@@ -320,7 +320,7 @@ def classify_scan(csi_matrix):
         # If both halves have similar variance â†’ Both lungs affected
         # If one is much higher â†’ only that lung
         ratio = max(var_first, var_second) / (min(var_first, var_second) + 1e-10)
-        if ratio < 2.0 and var_first > 0.01 and var_second > 0.01:
+        if ratio < 1.3 and var_first > 0.05 and var_second > 0.05:
             affected_lung = "Both"
         elif var_first > var_second:
             affected_lung = "Left"
@@ -447,4 +447,5 @@ if __name__ == '__main__':
 
     with socketserver.TCPServer(("", PORT), DashHandler) as httpd:
         httpd.serve_forever()
+
 
