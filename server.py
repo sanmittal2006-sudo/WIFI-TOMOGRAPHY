@@ -230,7 +230,9 @@ def run_live_scan():
             pkt_count = len(csi_at_pos)
             mean_rssi = np.mean(rssi_at_pos) if rssi_at_pos else -99
             mean_amp_pos = float(np.mean(np.mean(csi_at_pos, axis=0))) if csi_at_pos else 0.0
-            print(f"  [LIVE]   Got {pkt_count} CSI packets, RSSI={mean_rssi:.1f} dBm, Amp={mean_amp_pos:.2f} at pos {pos+1}")
+            # Per-packet amplitude variance — water causes signal to fluctuate MORE
+            pkt_var = float(np.mean(np.var(csi_at_pos, axis=0))) if len(csi_at_pos) > 1 else 0.0
+            print(f"  [LIVE]   Got {pkt_count} CSI packets, RSSI={mean_rssi:.1f} dBm, Amp={mean_amp_pos:.2f}, PktVar={pkt_var:.2f} at pos {pos+1}")
             all_rssi.append(mean_rssi)
             
             # Push to live_state for dashboard
@@ -238,7 +240,8 @@ def run_live_scan():
                 "pos": pos+1,
                 "rssi": round(float(mean_rssi), 1),
                 "amp": round(mean_amp_pos, 2),
-                "pkts": pkt_count
+                "pkts": pkt_count,
+                "pkt_var": round(pkt_var, 2)
             })
 
             if csi_at_pos:
@@ -433,7 +436,7 @@ def classify_scan(csi_matrix, rssi_array=None):
         elif rssi_diff > 5:
             score += 1
     
-    # ═══ CSI amplitude pattern (backup) ═══
+    # ═══ CSI amplitude pattern ═══
     sorted_means = np.sort(pos_means)
     weak_avg = np.mean(sorted_means[:4])
     strong_avg = np.mean(sorted_means[-4:])
@@ -444,6 +447,34 @@ def classify_scan(csi_matrix, rssi_array=None):
     elif amp_ratio < 0.7:
         score += 2
     elif amp_ratio < 0.85:
+        score += 1
+    
+    # ═══ Per-packet variance (multipath scattering from water) ═══
+    # Water causes signal to fluctuate MORE within the same position
+    # This is computed from the live_csi data
+    if "live_csi" in live_state and live_state["live_csi"]:
+        pkt_vars = [d.get("pkt_var", 0) for d in live_state["live_csi"]]
+        mean_pkt_var = np.mean(pkt_vars)
+        max_pkt_var = np.max(pkt_vars)
+        print(f"  [PKT_VAR] mean={mean_pkt_var:.2f}, max={max_pkt_var:.2f}")
+        
+        # Higher packet variance = more water scattering
+        if mean_pkt_var > 15:
+            score += 4
+        elif mean_pkt_var > 10:
+            score += 3
+        elif mean_pkt_var > 6:
+            score += 2
+        elif mean_pkt_var > 3:
+            score += 1
+    
+    # ═══ Overall amplitude level (absorption) ═══
+    # More water = lower overall amplitude
+    if mean_amp < 5.0:
+        score += 3
+    elif mean_amp < 6.0:
+        score += 2
+    elif mean_amp < 7.0:
         score += 1
     
     print(f"  [CLASSIFY] mean_amp={mean_amp:.2f}, angle_var={angle_var:.4f}, amp_ratio={amp_ratio:.3f}, score={score}")
