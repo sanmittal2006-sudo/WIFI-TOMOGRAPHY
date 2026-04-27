@@ -254,14 +254,18 @@ def run_live_scan():
             # Move motor to next position
             if pos < 15:
                 motor.write(b"MOVE\n")
+                got_done = False
                 resp_time = time.time() + 3
                 while time.time() < resp_time:
                     if motor.in_waiting:
                         mresp = motor.readline().decode('utf-8', errors='ignore').strip()
                         print(f"  [LIVE]   Motor: {mresp}")
                         if 'DONE' in mresp:
+                            got_done = True
                             break
                     time.sleep(0.1)
+                if not got_done:
+                    print(f"  [LIVE]   WARNING: Motor did not confirm move at pos {pos+1}!")
                 time.sleep(0.5)  # Settle time
 
         rx.close()
@@ -407,33 +411,33 @@ def classify_scan(csi_matrix, rssi_array=None):
         rssi_info = f"mean_rssi={mean_rssi:.1f}, rssi_range={rssi_range:.1f}, rssi_diff={rssi_diff:.1f}, rssi_var={rssi_var:.2f}"
         print(f"  [RSSI] {rssi_info}")
         
-        # RSSI range scoring — water causes RSSI to vary across angles
-        # Mild data: rssi_range=7.7, Severe should be >12+
-        if rssi_range > 15:
+        # RSSI range scoring
+        # REAL DATA: Empty=3.3, Severe=7.4
+        if rssi_range > 8:
             score += 4
-        elif rssi_range > 12:
-            score += 3
-        elif rssi_range > 9:
-            score += 2
         elif rssi_range > 6:
+            score += 3
+        elif rssi_range > 4.5:
+            score += 2
+        elif rssi_range > 3.5:
             score += 1
         
         # RSSI variance scoring
-        # Mild data: rssi_var=2.79
-        if rssi_var > 10:
+        # REAL DATA: Empty=0.76, Severe=2.64
+        if rssi_var > 4:
             score += 3
-        elif rssi_var > 6:
+        elif rssi_var > 2.5:
             score += 2
-        elif rssi_var > 3.5:
+        elif rssi_var > 1.5:
             score += 1
         
         # RSSI diff (weak vs strong positions)
-        # Mild data: rssi_diff=3.8
-        if rssi_diff > 12:
+        # REAL DATA: Empty=2.2, Severe=3.8
+        if rssi_diff > 6:
             score += 3
-        elif rssi_diff > 8:
+        elif rssi_diff > 4:
             score += 2
-        elif rssi_diff > 5:
+        elif rssi_diff > 2.5:
             score += 1
     
     # ═══ CSI amplitude pattern ═══
@@ -449,33 +453,20 @@ def classify_scan(csi_matrix, rssi_array=None):
     elif amp_ratio < 0.85:
         score += 1
     
-    # ═══ Per-packet variance (multipath scattering from water) ═══
-    # Water causes signal to fluctuate MORE within the same position
-    # This is computed from the live_csi data
+    # ═══ Per-packet variance ═══
+    # REAL DATA: Empty=0.65, Severe=0.89
     if "live_csi" in live_state and live_state["live_csi"]:
         pkt_vars = [d.get("pkt_var", 0) for d in live_state["live_csi"]]
         mean_pkt_var = np.mean(pkt_vars)
         max_pkt_var = np.max(pkt_vars)
         print(f"  [PKT_VAR] mean={mean_pkt_var:.2f}, max={max_pkt_var:.2f}")
         
-        # Higher packet variance = more water scattering
-        if mean_pkt_var > 15:
-            score += 4
-        elif mean_pkt_var > 10:
+        if mean_pkt_var > 2.0:
             score += 3
-        elif mean_pkt_var > 6:
+        elif mean_pkt_var > 1.2:
             score += 2
-        elif mean_pkt_var > 3:
+        elif mean_pkt_var > 0.75:
             score += 1
-    
-    # ═══ Overall amplitude level (absorption) ═══
-    # More water = lower overall amplitude
-    if mean_amp < 5.0:
-        score += 3
-    elif mean_amp < 6.0:
-        score += 2
-    elif mean_amp < 7.0:
-        score += 1
     
     print(f"  [CLASSIFY] mean_amp={mean_amp:.2f}, angle_var={angle_var:.4f}, amp_ratio={amp_ratio:.3f}, score={score}")
     
