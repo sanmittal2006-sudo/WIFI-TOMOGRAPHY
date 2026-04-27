@@ -405,29 +405,32 @@ def classify_scan(csi_matrix, rssi_array=None):
         print(f"  [RSSI] {rssi_info}")
         
         # RSSI range scoring — water causes RSSI to vary across angles
-        if rssi_range > 8:
+        # Mild data: rssi_range=7.7, Severe should be >12+
+        if rssi_range > 15:
             score += 4
-        elif rssi_range > 5:
+        elif rssi_range > 12:
             score += 3
-        elif rssi_range > 3:
+        elif rssi_range > 9:
             score += 2
-        elif rssi_range > 1.5:
+        elif rssi_range > 6:
             score += 1
         
         # RSSI variance scoring
-        if rssi_var > 8:
+        # Mild data: rssi_var=2.79
+        if rssi_var > 10:
             score += 3
-        elif rssi_var > 4:
+        elif rssi_var > 6:
             score += 2
-        elif rssi_var > 1.5:
+        elif rssi_var > 3.5:
             score += 1
         
         # RSSI diff (weak vs strong positions)
-        if rssi_diff > 10:
+        # Mild data: rssi_diff=3.8
+        if rssi_diff > 12:
             score += 3
-        elif rssi_diff > 6:
+        elif rssi_diff > 8:
             score += 2
-        elif rssi_diff > 3:
+        elif rssi_diff > 5:
             score += 1
     
     # ═══ CSI amplitude pattern (backup) ═══
@@ -453,7 +456,7 @@ def classify_scan(csi_matrix, rssi_array=None):
         severity = "Moderate"
         confidence = 0.87
         water_ml = 50
-    elif score >= 2:
+    elif score >= 1:
         severity = "Mild"
         confidence = 0.80
         water_ml = 15
